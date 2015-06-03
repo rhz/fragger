@@ -27,7 +27,7 @@ object Fragger extends js.JSApp {
       // rep((node <~ ";") | (edge <~ ";")) ^^ {
       repsep(edge | markedNode | inMarkedNode | outMarkedNode | node |
         failure("a node or an edge was expected"), ";" | ",") <~ opt(";" |
-          failure("'->' or ';' was expected")) ^^ {
+          failure("'->' or ',' or ';' was expected")) ^^ {
         nodesAndEdges =>
         val g = Graph()()
         var i = 0
