@@ -117,11 +117,12 @@ object Fragger extends js.JSApp {
 
     def toIntNodes(g: Graph): Graph = {
       val nodes = g.nodes.zipWithIndex.toMap
-      val edges = for (e <- g.edges) yield IdDiEdge(e.id,
-        nodes(e.source).toString,nodes(e.target).toString)
+      def node(n: N): N = nodes(n).toString
+      val edges = for (IdDiEdge(id,src,tgt) <- g.edges) yield
+        IdDiEdge(id,node(src),node(tgt))
       val h = Graph(nodes.values.map(_.toString),edges)
-      for (n <- g.inMarks) h(n).inMark
-      for (n <- g.outMarks) h(n).outMark
+      for (n <- g.inMarks) h(node(n)).inMark
+      for (n <- g.outMarks) h(node(n)).outMark
       h
     }
   }
@@ -174,7 +175,6 @@ object Fragger extends js.JSApp {
       GraphParser.parse(r.rhs.value,errorDiv,
         s"the right-hand side of rule '${r.name.value}'"),
       Rate(r.name.value))
-    println(rs)
     val os = for {
       o <- obs
       if o.name.value != ""
@@ -196,7 +196,7 @@ object Fragger extends js.JSApp {
         else if (g(n).outMarked) "<" + n + ">"
         else n).mkString(", ") + (
         if (g.nodes.isEmpty || g.edges.isEmpty) "" else ", ") +
-      (for (e <- g.edges) yield
+      (for (e <- g.edges.toSeq) yield
         s"${e.source}->${e.target}").mkString(", ")
     val names = for ((g,n) <- name.seq)
                 yield s"$n := ${toDot(g)}"
@@ -237,7 +237,6 @@ object Fragger extends js.JSApp {
           "Observables can't contain quotes (\").")
       } else s"""("${name.value}","${graph.value}")"""
     }).mkString(";")
-    println(s"{rules:[$rs],obs:[$os]}")
     s"{rules:[$rs],obs:[$os]}"
   }
 
@@ -251,7 +250,6 @@ object Fragger extends js.JSApp {
       ruleDiv.innerHTML = ""
       obsDiv.innerHTML = ""
       for (Triple(name,lhs,rhs) <- rs.split(";")) {
-        println(s"($name,$lhs,$rhs)")
         ruleDiv.appendChild(newRule)
         val RuleInput(n,l,r) = rules.last
         n.value = name
@@ -259,7 +257,6 @@ object Fragger extends js.JSApp {
         r.value = rhs
       }
       for (Twople(name,graph) <- os.split(";")) {
-        println(s"($name,$graph)")
         obsDiv.appendChild(newObs)
         val ObsInput(n,g) = obs.last
         n.value = name
@@ -273,7 +270,16 @@ object Fragger extends js.JSApp {
     }
   }
 
+  def availableModels: String =
+    if (localStorage.getItem("models") != null)
+      "Available models: " + localStorage.getItem("models") + "."
+    else "No available models in the storage."
+
   val modelName: html.Input = input(tpe:="text",width:="100%").render
+  val modelDiv: html.Div = div(cls:="col-md-4",
+    style:="font-size:18px; line-height:37px; margin-top:2px")(
+    availableModels).render
+
   val loadModel = () =>
     if (modelName.value == "") {
       errorDiv.innerHTML = ""
@@ -301,16 +307,12 @@ object Fragger extends js.JSApp {
           localStorage.getItem("models") + "," + modelName.value)
       }
       localStorage.setItem(modelName.value,serialiseModel)
+      modelDiv.innerHTML = availableModels
     } else {
       errorDiv.innerHTML = ""
       errorDiv.appendChild(div(cls:="alert alert-danger")(
         "Model name shouldn't contains commas.").render)
     }
-
-  def availableModels: String =
-    if (localStorage.getItem("models") != null)
-      "Available models: " + localStorage.getItem("models") + "."
-    else "No available models in the storage."
 
   val mainDiv: html.Div =
     div(cls:="container text-center")(
@@ -355,9 +357,7 @@ object Fragger extends js.JSApp {
           onclick:=loadModel)("Load model")),
         div(cls:="col-md-2")(button(cls:="btn btn-lg btn-default",
           onclick:=saveModel)("Save model")),
-        div(cls:="col-md-4",
-          style:="font-size:18px; line-height:37px; margin-top:2px")(
-          availableModels)),
+        modelDiv),
       // -- Results --
       resultDiv).render
 
