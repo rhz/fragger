@@ -2,14 +2,17 @@ package fragger
 
 import scala.collection.mutable
 import scala.scalajs.js
-import js.annotation.JSExport
-import org.scalajs.dom.{document,html,localStorage}
+import js.annotation.{JSExport,JSName}
+// import js.DynamicImplicits._
+// import js.Dynamic.{global => g}
+
+import org.scalajs.dom
+import dom.{document,html,localStorage}
 import scalatags.JsDom.all._
 import scala.util.parsing.combinator._
 import graph_rewriting._
 import implicits._
 import moments._
-
 
 object Fragger extends js.JSApp {
 
@@ -19,32 +22,39 @@ object Fragger extends js.JSApp {
   val Graph = MarkedDiGraph.withType[N,L,E,L]
   type Graph = MarkedDiGraph[N,L,E,L]
 
+  // -- Parsing --
+
   object GraphParser extends Parsers with RegexParsers {
 
-    lazy val ident: Parser[String] = """\w+""".r | failure("an identifier was expected")
+    lazy val ident: Parser[String] =
+      """\w+""".r | failure("an identifier was expected")
+
+    def addNode(g: Graph, name: N, label: Option[L], mark: Int) = {
+      g += name
+      if (label.isDefined)
+        g(name).label = label.get
+      mark match {
+        case 0 => ()
+        case 1 => g(name).inMark
+        case 2 => g(name).outMark
+        case 3 => g(name).mark
+      }
+    }
 
     lazy val graph: Parser[Graph] =
       // rep((node <~ ";") | (edge <~ ";")) ^^ {
-      repsep(edge | markedNode | inMarkedNode | outMarkedNode | node |
-        failure("a node or an edge was expected"), ";" | ",") <~ opt(";" |
+      repsep(edge | node | failure("a node or an edge was expected"),
+        ";" | ",") <~ opt(";" |
           failure("'->' or ',' or ';' was expected")) ^^ {
         nodesAndEdges =>
         val g = Graph()()
         var i = 0
         for (nodeOrEdge <- nodesAndEdges) nodeOrEdge match {
-          case Node(name,label,mark) => {
-            g += name
-            if (label.isDefined)
-              g(name).label = label.get
-            mark match {
-              case 0 => ()
-              case 1 => g(name).inMark
-              case 2 => g(name).outMark
-              case 3 => g(name).mark
-            }
-          }
+          case Node(name,label,mark) => addNode(g,name,label,mark)
           case Edge(source,target,label) => {
-            val e = IdDiEdge(i,source,target)
+            addNode(g,source.name,source.label,source.mark)
+            addNode(g,target.name,target.label,target.mark)
+            val e = IdDiEdge(i,source.name,target.name)
             i += 1
             g += e
             if (label.isDefined)
@@ -54,7 +64,10 @@ object Fragger extends js.JSApp {
         g
       }
 
-    lazy val node: Parser[Node] = ident ~ label ^^ {
+    lazy val node: Parser[Node] =
+      markedNode | inMarkedNode | outMarkedNode | unmarkedNode
+
+    lazy val unmarkedNode: Parser[Node] = ident ~ label ^^ {
       case name ~ label => Node(name,label,0) }
 
     lazy val inMarkedNode: Parser[Node] = (">" ~> ident <~ "<") ~ label ^^ {
@@ -66,7 +79,7 @@ object Fragger extends js.JSApp {
     lazy val markedNode: Parser[Node] = ("|" ~> ident <~ "|") ~ label ^^ {
       case name ~ label => Node(name,label,3) }
 
-    lazy val edge: Parser[Edge] = ident ~ arrow ~ ident ^^ {
+    lazy val edge: Parser[Edge] = node ~ arrow ~ node ^^ {
       case source ~ label ~ target => Edge(source,target,label) }
 
     lazy val arrow: Parser[Option[L]] =
@@ -76,7 +89,7 @@ object Fragger extends js.JSApp {
 
     sealed abstract class NodeOrEdge
     case class Node(name: N, label: Option[L], mark: Int) extends NodeOrEdge
-    case class Edge(source: N, target: N, label: Option[L]) extends NodeOrEdge
+    case class Edge(source: Node, target: Node, label: Option[L]) extends NodeOrEdge
 
     def parse(s: String, errorDiv: html.Div, pos: String): Graph =
       parse(super[Parsers].phrase(graph),s) match {
@@ -116,16 +129,22 @@ object Fragger extends js.JSApp {
       yield (toIntNodes(g),s"F$i"))
 
     def toIntNodes(g: Graph): Graph = {
-      val nodes = g.nodes.zipWithIndex.toMap
-      def node(n: N): N = nodes(n).toString
-      val edges = for (IdDiEdge(id,src,tgt) <- g.edges) yield
-        IdDiEdge(id,node(src),node(tgt))
-      val h = Graph(nodes.values.map(_.toString),edges)
-      for (n <- g.inMarks) h(node(n)).inMark
-      for (n <- g.outMarks) h(node(n)).outMark
+      val nodes = g.nodes.zipWithIndex.toMap.mapValues(_.toString)
+      val edges = (for (e <- g.edges) yield
+        (e,IdDiEdge(e.id,nodes(e.source),nodes(e.target)))).toMap
+      val h = Graph(nodes.values,edges.values)
+      for (n <- g.inMarks) h(nodes(n)).inMark
+      for (n <- g.outMarks) h(nodes(n)).outMark
+      for ((n,l) <- g.nodelabels) h(nodes(n)).label = l
+      for ((e,l) <- g.edgelabels) h(edges(e)).label = l
       h
     }
   }
+
+  val cnt = utils.Counter()
+  def countFrags = (g: Graph) => { cnt.next; None }
+
+  // -- Rules and Observables --
 
   case class RuleInput(name: html.Input, lhs: html.Input, rhs: html.Input)
   case class ObsInput(name: html.Input, graph: html.Input)
@@ -139,11 +158,11 @@ object Fragger extends js.JSApp {
     val rhs = input(tpe:="text",width:="100%").render
     rules += RuleInput(name,lhs,rhs)
     div(cls:="row",margin:=10)(
-      div(cls:="col-md-1")(name),
       div(cls:="col-md-5")(lhs),
       div(cls:="glyphicon glyphicon-arrow-right col-md-1",
         aria.hidden:=true,style:="line-height:35px"),
-      div(cls:="col-md-5")(rhs)).render
+      div(cls:="col-md-5")(rhs),
+      div(cls:="col-md-1")(name)).render
   }
 
   def newObs: html.Div = {
@@ -158,7 +177,7 @@ object Fragger extends js.JSApp {
   val n: Int = 3 // initial number of rules and observables
   val ruleDiv: html.Div = div(for (i <- 1 to n) yield newRule).render
   val obsDiv: html.Div = div(for (i <- 1 to n) yield newObs).render
-  val maxNumEqs: html.Input = input(tpe:="text",size:=3,value:="10").render
+  val maxNumEqs: html.Input = input(tpe:="text",size:=1,value:="10").render
   val errorDiv: html.Div = div().render
   val resultDiv: html.Div = div().render
 
@@ -182,7 +201,7 @@ object Fragger extends js.JSApp {
       GraphParser.parse(o.graph.value,errorDiv,
         s"observable '${o.name.value}'"))
     val odes = generateMeanODEs[N,L,E,L,MarkedDiGraph](
-      maxNumEqs.value.toInt,rs,os.map(_._2))
+      maxNumEqs.value.toInt,rs,os.map(_._2),countFrags)
     // FIXME: Better output
     val p = ODEPrinter(odes)
     val name = new ObsNaming(os)
@@ -190,24 +209,30 @@ object Fragger extends js.JSApp {
       s"d(${name(lhs)})/dt = " + (if (rhs.isEmpty) "0" else
         rhs.terms.map(p.strMn(_,name)).mkString(" + ")))
     def toDot(g: Graph) =
-      (for (n <- g.nodes) yield
+      (for (n <- g.nodes) yield (
         if (g(n).inMarked && g(n).outMarked) "|" + n + "|"
         else if (g(n).inMarked) ">" + n + "<"
         else if (g(n).outMarked) "<" + n + ">"
-        else n).mkString(", ") + (
+        else n) + (g(n).label match {
+          case Some(l) => "[" + l + "]"
+          case None => ""
+        })).mkString(", ") + (
         if (g.nodes.isEmpty || g.edges.isEmpty) "" else ", ") +
       (for (e <- g.edges.toSeq) yield
         s"${e.source}->${e.target}").mkString(", ")
     val names = for ((g,n) <- name.seq)
                 yield s"$n := ${toDot(g)}"
-    // resultDiv.innerHTML = ""
+    resultDiv.innerHTML = ""
     resultDiv.appendChild(
       div(cls:="row",margin:=10)(h2("Results")).render)
     resultDiv.appendChild(
       textarea(style:="margin-bottom:50px; width:100%; height:" +
-      ((names.size + lines.size + 1) * 30) + "px")(
+      // TODO: Try to find a more general way to handle long lines
+      ((names.size + lines.size + 1 + lines.filter(_.length > 130).size) * 30) + "px")(
       names.mkString("\n") + "\n\n" + lines.mkString("\n")).render)
   }
+
+  // -- Serialisation --
 
   def serialiseModel: String = {
     val rs = (for {
@@ -237,14 +262,16 @@ object Fragger extends js.JSApp {
           "Observables can't contain quotes (\").")
       } else s"""("${name.value}","${graph.value}")"""
     }).mkString(";")
-    s"{rules:[$rs],obs:[$os]}"
+    s"{rules:[$rs],observables:[$os],maxEqs:${maxNumEqs.value}}"
   }
 
-  val Model = """{rules:\[(.*)\],obs:\[(.*)\]}""".r
-  val Triple = """\("(.*)","(.*)","(.*)"\)""".r
-  val Twople = """\("(.*)","(.*)"\)""".r
-  def deserialiseModel(s: String) = s match {
-    case Model(rs,os) => {
+  val Model = ("""{\s*rules\s*:\s*\[\s*(.*)\s*\]\s*,\s*observables""" +
+    """\s*:\s*\[\s*(.*)\s*\]\s*,\s*maxEqs\s*:\s*(.*)\s*}""").r
+  val Triple = """\(\s*"(.*)"\s*,\s*"(.*)"\s*,\s*"(.*)"\s*\)""".r
+  val Twople = """\(\s*"(.*)"\s*,\s*"(.*)"\s*\)""".r
+  def deserialiseModel(in: String) = in match {
+    case Model(rs,os,maxEqs) => {
+      maxNumEqs.value = maxEqs
       rules.clear
       obs.clear
       ruleDiv.innerHTML = ""
@@ -270,62 +297,98 @@ object Fragger extends js.JSApp {
     }
   }
 
-  def availableModels: String =
+  // -- Loading and Saving models --
+
+  val infile: html.Input = input(tpe:="file",onchange:=(() => {
+    val reader = new dom.FileReader
+    reader.onload = (e: dom.UIEvent) => {
+      deserialiseModel(reader.result.asInstanceOf[String]) }
+    reader.readAsText(infile.files(0)) })).render
+  var modelName: String = "model"
+
+  def availableModels: Seq[String] =
     if (localStorage.getItem("models") != null)
-      "Available models: " + localStorage.getItem("models") + "."
-    else "No available models in the storage."
+      localStorage.getItem("models").split(",")
+    else Seq()
 
-  val modelName: html.Input = input(tpe:="text",width:="100%").render
-  val modelDiv: html.Div = div(cls:="col-md-4",
-    style:="font-size:18px; line-height:37px; margin-top:2px")(
-    availableModels).render
-
-  val loadModel = () =>
-    if (modelName.value == "") {
-      errorDiv.innerHTML = ""
-      errorDiv.appendChild(div(cls:="alert alert-danger")(
-        "You didn't provide a name for the model.").render)
-    } else if ((localStorage.getItem("models") != null) &&
-      (localStorage.getItem("models").split(",").contains(modelName.value)) &&
-      (localStorage.getItem(modelName.value) != null)) {
-      deserialiseModel(localStorage.getItem(modelName.value))
+  def loadModel(modelName: String) =
+    if (localStorage.getItem(modelName) != null) {
+      this.modelName = modelName
+      deserialiseModel(localStorage.getItem(modelName))
     } else {
       errorDiv.innerHTML = ""
       errorDiv.appendChild(div(cls:="alert alert-danger")(
-        s"Model '${modelName.value}' hasn't been stored locally.").render)
+        s"Model '$modelName' is not stored in the browser.").render)
     }
-  val saveModel = () =>
-    if (modelName.value == "") {
-      errorDiv.innerHTML = ""
-      errorDiv.appendChild(div(cls:="alert alert-danger")(
-        "You didn't provide a name for the model.").render)
-    } else if (! modelName.value.contains(",")) {
-      if (localStorage.getItem("models") == null) {
-        localStorage.setItem("models",modelName.value.toString)
-      } else if (! localStorage.getItem("models").split(",").contains(modelName.value)) {
-        localStorage.setItem("models",
-          localStorage.getItem("models") + "," + modelName.value)
-      }
-      localStorage.setItem(modelName.value,serialiseModel)
-      modelDiv.innerHTML = availableModels
-    } else {
+
+  val loadFromFile = () => infile.click()
+
+  def loadModelList: html.UList =
+    ul(cls:="dropdown-menu",aria.labelledby:="loadModel")(
+      li(a(href:="#",onclick:=loadFromFile)("From file")),
+      li(role:="separator",cls:="divider"),
+      li(cls:="dropdown-header")("From browser"),
+      for (m <- availableModels) yield
+        li(a(href:="#",onclick:=(() => loadModel(m)))(m))).render
+
+  def saveModel(modelName: String) =
+    if (modelName.value.contains(",")) {
       errorDiv.innerHTML = ""
       errorDiv.appendChild(div(cls:="alert alert-danger")(
         "Model name shouldn't contains commas.").render)
+    } else {
+      this.modelName = modelName
+      localStorage.setItem(modelName,serialiseModel)
+      if (localStorage.getItem("models") == null) {
+        localStorage.setItem("models",modelName.value.toString)
+      } else if (! localStorage.getItem("models").split(",").contains(
+        modelName.value)) {
+        localStorage.setItem("models",
+          localStorage.getItem("models") + "," + modelName.value)
+      }
     }
 
+  @JSName("Blob")
+  class Blob(parts: js.Array[String], tpe: js.Dynamic)
+      extends js.Object {
+    def size: Int = js.native
+    def `type`: String = js.native
+  }
+
+  val saveToFile = () => {
+    val file = new Blob(js.Array(serialiseModel),
+      js.Dynamic.literal("type" -> "text/plain;charset=utf8"))
+    js.Dynamic.global.saveAs(file,modelName + ".json")
+  }
+
+  def saveModelList: html.UList = {
+    val modelName = input(tpe:="text",width:="70%").render
+    ul(cls:="dropdown-menu",aria.labelledby:="saveModel")(
+      li(a(href:="#",onclick:=saveToFile)("To file")),
+      li(role:="separator",cls:="divider"),
+      li(cls:="dropdown-header")("To browser"),
+      for (m <- availableModels) yield
+        li(a(href:="#",onclick:=(() => saveModel(m)))(m)),
+      li(a(href:="#")(modelName,
+        button(cls:="btn btn-xs btn-default glyphicon glyphicon-ok",
+          style:="margin-left:10px; margin-bottom:6px",
+          onclick:=(() => saveModel(modelName.value)))))).render
+  }
+
+  // -- HTML --
+
   val mainDiv: html.Div =
-    div(cls:="container text-center")(
+    div(cls:="container text-center",id:="main-div")(
       // -- Title --
-      // div(cls:="container",margin:=10)(h1("Fragger")),
+      // div(cls:="row",margin:=10)(h1("Fragger")),
       // TODO: Missing description after title
       // -- Rules --
       div(cls:="row",margin:=10)(h2("Rules")),
       div(cls:="row",margin:=10)(
-        div(cls:="col-md-1")("name"),
         div(cls:="col-md-5")("left-hand side"),
         div(cls:="col-md-1"),
-        div(cls:="col-md-5")("right-hand side")),
+        div(cls:="col-md-5")("right-hand side"),
+        div(cls:="col-md-1")("rate")),
       ruleDiv,
       // -- Observables --
       div(cls:="row",margin:=10)(h2("Observables")),
@@ -338,29 +401,66 @@ object Fragger extends js.JSApp {
       // -- Buttons --
       div(cls:="row",margin:=10,
         style:="margin-top:50px; margin-bottom:20px")(
-        div(cls:="col-md-2")(button(cls:="btn btn-lg btn-default",
-          onclick:=addRule)("Add rule")),
-          div(cls:="col-md-2")(button(cls:="btn btn-lg btn-default",
+        div(cls:="col-md-2")(
+          button(cls:="btn btn-lg btn-default",
+            onclick:=addRule)("Add rule")),
+        div(cls:="col-md-2")(
+          button(cls:="btn btn-lg btn-default",
             onclick:=addObs)("Add observable")),
-          div(cls:="col-md-4")(
-            button(cls:="btn btn-lg btn-primary",width:="100%",
-              onclick:=genEquations)("Generate equations!")),
-          div(cls:="col-md-4",style:="font-size:18px; line-height:37px")(
-            "Maximum number of equations: ",maxNumEqs)),
-      // -- Save and load models --
-      // FIXME: This should be in a side menu
-      div(cls:="row",margin:=10,style:="margin-bottom:30px")(
-        div(cls:="col-md-4",style:="font-size:18px; line-height:37px")(
-          div(style:="float:left; margin-top:2px")("Model name: "),
-          div(style:="overflow:hidden; padding-left:10px")(modelName)),
-        div(cls:="col-md-2")(button(cls:="btn btn-lg btn-default",
-          onclick:=loadModel)("Load model")),
-        div(cls:="col-md-2")(button(cls:="btn btn-lg btn-default",
-          onclick:=saveModel)("Save model")),
-        modelDiv),
+        div(cls:="col-md-4")(
+          button(cls:="btn btn-lg btn-primary",width:="100%",
+            onclick:=genEquations)("Generate equations!")),
+        // -- Save and load models --
+        // TODO: Move to side menu (offcanvas plugin) or navbar
+        div(cls:="col-md-2")(
+          div(cls:="dropdown",style:="display:inline-block")(
+            button(cls:="btn btn-lg btn-default dropdown-toggle",
+              id:="loadModel",data.toggle:="dropdown",
+              aria.haspopup:="true",aria.expanded:="true")(
+              "Load model ",span(cls:="caret")),
+            loadModelList)),
+        div(cls:="col-md-2")(
+          div(cls:="dropdown",style:="display:inline-block")(
+            button(cls:="btn btn-lg btn-default dropdown-toggle",
+              id:="saveModel",data.toggle:="dropdown",
+              aria.haspopup:="true",aria.expanded:="true")(
+              "Save model ",span(cls:="caret")),
+            saveModelList))),
+      // div(cls:="row",margin:=10,
+      //   style:="margin-top:50px; margin-bottom:20px")(
+      //   div(cls:="btn-toolbar",role:="toolbar")(
+      //     // div(cls:="btn-group",role:="group")(
+      //     div(cls:="btn-group",role:="group")(
+      //       button(cls:="btn btn-lg btn-default",
+      //         onclick:=addRule)("Add rule")),
+      //     div(cls:="btn-group",role:="group")(
+      //       button(cls:="btn btn-lg btn-default",
+      //         onclick:=addObs)("Add observable")),
+      //     div(cls:="btn-group",role:="group")(
+      //       button(cls:="btn btn-lg btn-primary",width:="100%",
+      //         onclick:=genEquations)("Generate equations!")),
+      //     // -- Save and load models --
+      //     // TODO: Move to side menu (offcanvas plugin) or navbar
+      //     div(cls:="btn-group",role:="group")(
+      //       div(cls:="dropdown",style:="display:inline-block")(
+      //         button(cls:="btn btn-lg btn-default dropdown-toggle",id:="loadModel",
+      //           data.toggle:="dropdown",aria.haspopup:="true",aria.expanded:="true")(
+      //           "Load model ",span(cls:="caret")),
+      //         loadModelList)),
+      //     div(cls:="btn-group",role:="group")(
+      //       div(cls:="dropdown",style:="display:inline-block")(
+      //         button(cls:="btn btn-lg btn-default dropdown-toggle",id:="saveModel",
+      //           data.toggle:="dropdown",aria.haspopup:="true",aria.expanded:="true")(
+      //           "Save model ",span(cls:="caret")),
+      //         saveModelList)))),
+      div(cls:="row",style:="margin-bottom:50px")( //,style:="font-size:18px; line-height:37px")(
+        "Maximum number of equations: ",maxNumEqs),
       // -- Results --
       resultDiv).render
 
-  // localStorage.clear
+
+  // -- Main --
+
   def main(): Unit = document.body.appendChild(mainDiv)
+  // localStorage.clear
 }
