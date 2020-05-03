@@ -108,6 +108,8 @@ object Fragger extends js.JSApp {
       }
   }
 
+  // -- Naming observables --
+
   class ObsNaming(obs: Seq[(String,Graph)], start: Int = 0)
       extends GraphNaming[N,L,E,L,MarkedDiGraph] {
 
@@ -143,6 +145,8 @@ object Fragger extends js.JSApp {
       h
     }
   }
+
+  // -- Observable counter --
 
   val cnt = utils.Counter()
   def countFrags = (g: Graph) => { cnt.next; None }
@@ -180,9 +184,13 @@ object Fragger extends js.JSApp {
   val n: Int = 3 // initial number of rules and observables
   val ruleDiv: html.Div = div(for (i <- 1 to n) yield newRule).render
   val obsDiv: html.Div = div(for (i <- 1 to n) yield newObs).render
-  val maxNumEqs: html.Input = input(tpe:="text",size:=1,value:="10").render
+  val maxNumEqs: html.Input =
+    input(tpe:="text",size:=1,value:="10").render
   val errorDiv: html.Div = div().render
   val resultDiv: html.Div = div().render
+  val rateEqs: html.Input =
+    input(tpe:="checkbox", cls:="form-check-input",
+      id:="rateEqs").render
 
   val addRule = () => ruleDiv.appendChild(newRule)
   val addObs = () => obsDiv.appendChild(newObs)
@@ -196,6 +204,7 @@ object Fragger extends js.JSApp {
         s"the left-hand side of rule '${r.name.value}'"),
       GraphParser.parse(r.rhs.value,errorDiv,
         s"the right-hand side of rule '${r.name.value}'"),
+      // FIXME: check that r has a non-empty name/rate
       Rate(r.name.value))
     val os = for {
       o <- obs
@@ -203,14 +212,21 @@ object Fragger extends js.JSApp {
     } yield (o.name.value,
       GraphParser.parse(o.graph.value,errorDiv,
         s"observable '${o.name.value}'"))
-    val odes = generateMeanODEs[N,L,E,L,MarkedDiGraph](
-      maxNumEqs.value.toInt,rs,os.map(_._2),countFrags)
+    val odes =
+      if (rateEqs.checked)
+        generateMeanODEs[N,L,E,L,MarkedDiGraph](
+          maxNumEqs.value.toInt, rs, os.map(_._2), countFrags,
+          splitConnectedComponents[N,L,E,L,MarkedDiGraph] _)
+      else
+        generateMeanODEs[N,L,E,L,MarkedDiGraph](
+          maxNumEqs.value.toInt, rs, os.map(_._2), countFrags)
+
     // FIXME: Better output
-    val p = ODEPrinter(odes)
+    val printer = ODEPrinter(odes)
     val name = new ObsNaming(os)
-    val lines = for (ODE(lhs,rhs) <- p.simplify) yield (
+    val lines = for (ODE(lhs,rhs) <- printer.simplify) yield (
       s"d(${name(lhs)})/dt = " + (if (rhs.isEmpty) "0" else
-        rhs.terms.map(p.strMn(_,name)).mkString(" + ")))
+        rhs.terms.map(printer.strMn(_,name)).mkString(" + ")))
     def toDot(g: Graph) =
       (for (n <- g.nodes) yield (
         if (g(n).inMarked && g(n).outMarked) "|" + n + "|"
@@ -230,7 +246,7 @@ object Fragger extends js.JSApp {
       div(cls:="row",margin:=10)(h2("Results")).render)
     resultDiv.appendChild(
       textarea(style:="margin-bottom:50px; width:100%; height:" +
-      // TODO: Try to find a more general way to handle long lines
+      // TODO: find a more general way to handle long lines
       ((names.size + lines.size + 1 + lines.filter(_.length > 130).size) * 30) + "px")(
       names.mkString("\n") + "\n\n" + lines.mkString("\n")).render)
   }
@@ -383,7 +399,35 @@ object Fragger extends js.JSApp {
   val mainDiv: html.Div =
     div(cls:="container text-center",id:="main-div")(
       // -- Title --
-      // div(cls:="row",margin:=10)(h1("Fragger")),
+      div(cls:="row",margin:=10)(h1("Fragger")),
+      div(cls:="row",margin:=10)(
+        div(cls:="col-md-6 col-md-offset-3 bg-info text-left",
+          style:="border: 2px solid #000; border-radius: 50px;" +
+            " padding-bottom: 20px;")(
+            h3(cls:="text-center")("Syntax"),
+            p(code("graph := ((node | edge)(\";\" | \",\"))*")),
+            p(code("node := name([label])?")),
+            p(code("edge := ->([label])?")),
+            p("Here ", code("->"), ", ", code("["),
+              ", and ", code("]"), " are literals."),
+            p("Names and labels can be any word."),
+            p("The left- and right-hand sides expect graphs."),
+            p("Names should be unique on each graph",
+              " and are used to map the left-hand side (lhs)",
+              " into the right-hand side (rhs)."),
+            p(
+              "The node name may be surrounded by 3 types of marks",
+              " like ", code("|name|"), " or ", code("<name>"),
+              " or ", code(">name<"), ", where ", code ("|"), ", ",
+              code("<"), ", and ", code(">"), " are literals. ",
+              code("|name|"), " matches nodes with same degree, ",
+              code("<name>"), " matches nodes with same out-degree,",
+              " and ", code(">name<"), " matches nodes with same",
+              " in-degree."))),
+            // p("Nodes annotated as ", code("|name|"),
+            //   " do not match nodes with larger degree, while <name> nodes do not match" +
+            //   " those with larger out-degree and >name< those with" +
+            //   " larger in-degree."))),
       // TODO: Missing description after title
       // -- Rules --
       div(cls:="row",margin:=10)(h2("Rules")),
@@ -403,7 +447,7 @@ object Fragger extends js.JSApp {
       errorDiv,
       // -- Buttons --
       div(cls:="row",margin:=10,
-        style:="margin-top:50px; margin-bottom:20px")(
+        style:="margin-top: 50px; margin-bottom: 20px;")(
         div(cls:="col-md-2")(
           button(cls:="btn btn-lg btn-default",
             onclick:=addRule)("Add rule")),
@@ -456,8 +500,17 @@ object Fragger extends js.JSApp {
       //           data.toggle:="dropdown",aria.haspopup:="true",aria.expanded:="true")(
       //           "Save model ",span(cls:="caret")),
       //         saveModelList)))),
-      div(cls:="row",style:="margin-bottom:50px")( //,style:="font-size:18px; line-height:37px")(
-        "Maximum number of equations: ",maxNumEqs),
+      // div(cls:="row",style:="margin-bottom: 50px")( //,style:="font-size:18px; line-height:37px")(
+      div(cls:="row",margin:=10,
+        // style:="margin-top: 50px; margin-bottom: 20px")(
+        style:="margin-bottom: 50px")(
+        div(cls:="col-md-6 form-check",
+          title:="Assume independence between connected components")(
+          rateEqs, label(cls:="form-check-label",
+            style:="font-weight: normal; padding-left: 10px;",
+            `for`:="rateEqs")("Rate equations")),
+        div(cls:="col-md-6")(
+          "Maximum number of equations: ", maxNumEqs)),
       // -- Results --
       resultDiv).render
 
