@@ -9,6 +9,9 @@ import js.annotation.{JSExport,JSName}
 import org.scalajs.dom
 import dom.{document,html,localStorage}
 import scalatags.JsDom.all._
+// import fr.iscpif.scaladget.mapping._
+// import fr.iscpif.scaladget.d3._
+import org.scalajs.d3._
 import scala.util.parsing.combinator._
 import graph_rewriting._
 import implicits._
@@ -458,6 +461,125 @@ object Fragger extends js.JSApp {
       // -- Results --
       resultDiv).render
 
+
+  // -- Graph drawings --
+
+  // class Node(val nme: String)
+  //     extends Layout.GraphNode {
+  //   var name = nme
+  // }
+  // object Node {
+  //   def apply(name: String) = new Node(name)
+  // }
+  // class Edge(override var source: Layout.GraphNode,
+  //            override var target: Layout.GraphNode)
+  //     extends Layout.GraphLink
+  // object Edge {
+  //   def apply(source: Layout.GraphNode,
+  //             target: Layout.GraphNode) = new Edge(source,target)
+  // }
+
+  // trait GraphElement {
+  //   def literal: js.Dynamic
+  // }
+  // val lit = js.Dynamic.literal
+  // class Node(val id: String) extends GraphElement {
+  //   def literal = lit("id" -> id, "title" -> id)
+  // }
+  // class Edge(val source: Node,
+  //            val target: Node) extends GraphElement {
+  //   def literal = lit("source" -> source.literal,
+  //                     "target" -> target.literal)
+  // }
+
+  // Example: http://bl.ocks.org/mbostock/1153292
+  // val links = Array(
+  //   new Edge(new Node("Microsoft"),new Node("Amazon")))
+    // lit(source = "Microsoft", target = "HTC", `type` = "licensing"),
+    // lit(source = "Samsung", target = "Apple", `type` = "suit"),
+    // lit(source = "Motorola", target = "Apple", `type` = "suit"),
+    // lit(source = "Nokia", target = "Apple", `type` = "resolved"),
+    // lit(source = "HTC", target = "Apple", `type` = "suit"),
+    // lit(source = "Kodak", target = "Apple", `type` = "suit"),
+    // lit(source = "Microsoft", target = "Barnes & Noble", `type` = "suit"),
+    // lit(source = "Microsoft", target = "Foxconn", `type` = "suit"),
+    // lit(source = "Oracle", target = "Google", `type` = "suit"),
+    // lit(source = "Apple", target = "HTC", `type` = "suit"),
+    // lit(source = "Microsoft", target = "Inventec", `type` = "suit"),
+    // lit(source = "Samsung", target = "Kodak", `type` = "resolved"),
+    // lit(source = "LG", target = "Kodak", `type` = "resolved"),
+    // lit(source = "RIM", target = "Kodak", `type` = "suit"),
+    // lit(source = "Sony", target = "LG", `type` = "suit"),
+    // lit(source = "Kodak", target = "LG", `type` = "resolved"),
+    // lit(source = "Apple", target = "Nokia", `type` = "resolved"),
+    // lit(source = "Qualcomm", target = "Nokia", `type` = "resolved"),
+    // lit(source = "Apple", target = "Motorola", `type` = "suit"),
+    // lit(source = "Microsoft", target = "Motorola", `type` = "suit"),
+    // lit(source = "Motorola", target = "Microsoft", `type` = "suit"),
+    // lit(source = "Huawei", target = "ZTE", `type` = "suit"),
+    // lit(source = "Ericsson", target = "ZTE", `type` = "suit"),
+    // lit(source = "Kodak", target = "Samsung", `type` = "resolved"),
+    // lit(source = "Apple", target = "Samsung", `type` = "suit"),
+    // lit(source = "Kodak", target = "RIM", `type` = "suit"),
+    // lit(source = "Nokia", target = "Qualcomm", `type` = "suit"))
+
+  // val nodes = Array(new Node("Microsoft"),new Node("Amazon"))
+  // val (w,h) = (960,500)
+  // import js.JSConverters._
+  // val force = d3.layout.force()
+  //   .nodes(nodes.map(_.literal).toJSArray.asInstanceOf[js.Array[Layout.GraphNode]])
+  //   .links(links.map(_.literal).toJSArray.asInstanceOf[js.Array[Layout.GraphLink]])
+  //   .size(js.Array[Double](w,h))
+  //   .linkDistance(60)
+  //   .charge(-300)
+  //   // .on("tick", tick)
+  //   .start();
+  // val svg = d3.select("main-div").append("svg")
+  //   .attr("width",w)
+  //   .attr("height",h);
+
+  // val links: List[(String,String,String)] = List(
+  //   ("Microsoft", "Amazon", "licensing"),
+  //   ("Microsoft", "HTC", "licensing"),
+  //   ("Samsung", "Apple", "suit"),
+  //   ("Motorola", "Apple", "suit"),
+  //   ("Nokia", "Apple", "resolved"),
+  //   ("HTC", "Apple", "suit"),
+  //   ("Kodak", "Apple", "suit"),
+  //   ("Microsoft", "Barnes & Noble", "suit"),
+  //   ("Microsoft", "Foxconn", "suit"),
+  //   ("Oracle", "Google", "suit"),
+  //   ("Apple", "HTC", "suit"),
+  //   ("Microsoft", "Inventec", "suit"),
+  //   ("Samsung", "Kodak", "resolved"),
+  //   ("LG", "Kodak", "resolved"),
+  //   ("RIM", "Kodak", "suit"),
+  //   ("Sony", "LG", "suit"),
+  //   ("Kodak", "LG", "resolved"),
+  //   ("Apple", "Nokia", "resolved"),
+  //   ("Qualcomm", "Nokia", "resolved"),
+  //   ("Apple", "Motorola", "suit"),
+  //   ("Microsoft", "Motorola", "suit"),
+  //   ("Motorola", "Microsoft", "suit"),
+  //   ("Huawei", "ZTE", "suit"),
+  //   ("Ericsson", "ZTE", "suit"),
+  //   ("Kodak", "Samsung", "resolved"),
+  //   ("Apple", "Samsung", "suit"),
+  //   ("Kodak", "RIM", "suit"),
+  //   ("Nokia", "Qualcomm", "suit"))
+
+  // val svg = d3.select("main-div")
+  //   .append("svg")
+  //   .attr("width", "800px")
+  //   .attr("height", "800px")
+  // val svgG = svg.append("g").classed("graph", true)
+  // val dragLine = svgG.append("svg:path")
+  //   .attr("class", "link dragline hidden")
+  //   .attr("d", "M0,0L0,0")
+  //   .style("marker-end", "url(#mark-end-arrow)")
+  // val defs = svg.append("svg:defs") // why svg instead of svgG?
+  // val pathRoot = svgG.append("g")
+  // val circleRoot = svgG.append("g")
 
   // -- Main --
 

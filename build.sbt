@@ -21,6 +21,7 @@ resolvers += "Sonatype snapshots" at
 libraryDependencies ++= Seq(
   "org.scala-js" %%% "scalajs-dom" % "0.8.0",
   "com.lihaoyi" %%% "scalatags" % "0.5.2",
+  "org.spaced.scalajs" %%% "scalajs-d3" % "0.1-SNAPSHOT",
   "org.scala-js" %%% "scala-parser-combinators" % "1.0.2",
   "uk.ac.ed.inf" %%% "graph-rewriting" % "0.2"
 )
