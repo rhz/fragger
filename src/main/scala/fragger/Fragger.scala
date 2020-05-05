@@ -1,29 +1,32 @@
+package hz.ricardo
 package fragger
 
 import scala.collection.mutable
 import scala.scalajs.js
-import js.annotation.{JSExport,JSName}
+import js.annotation.JSGlobal
 // import js.DynamicImplicits._
 // import js.Dynamic.{global => g}
-
 import org.scalajs.dom
-import dom.{document,html,localStorage}
+// import dom.{document,html,localStorage}
+import dom.html
+import dom.window.localStorage
 import scalatags.JsDom.all._
 // import fr.iscpif.scaladget.mapping._
 // import fr.iscpif.scaladget.d3._
-import org.scalajs.d3._
+// import org.scalajs.d3._
 import scala.util.parsing.combinator._
 import graph_rewriting._
-import implicits._
+// import implicits._
 import moments._
 
-object Fragger extends js.JSApp {
+object Fragger {
 
   type N = String
   type E = IdDiEdge[Int,N]
   type L = String
   val Graph = MarkedDiGraph.withType[N,L,E,L]
   type Graph = MarkedDiGraph[N,L,E,L]
+  implicit val graphBuilder = MarkedDiGraph.empty[N,L,E,L] _
 
   // -- Parsing --
 
@@ -215,15 +218,17 @@ object Fragger extends js.JSApp {
     val odes =
       if (rateEqs.checked)
         generateMeanODEs[N,L,E,L,MarkedDiGraph](
-          maxNumEqs.value.toInt, rs, os.map(_._2), countFrags,
+          maxNumEqs.value.toInt, rs,
+          os.map(_._2).toSeq, countFrags,
           splitConnectedComponents[N,L,E,L,MarkedDiGraph] _)
       else
         generateMeanODEs[N,L,E,L,MarkedDiGraph](
-          maxNumEqs.value.toInt, rs, os.map(_._2), countFrags)
+          maxNumEqs.value.toInt, rs,
+          os.map(_._2).toSeq, countFrags)
 
     // FIXME: Better output
     val printer = ODEPrinter(odes)
-    val name = new ObsNaming(os)
+    val name = new ObsNaming(os.toSeq)
     val lines = for (ODE(lhs,rhs) <- printer.simplify) yield (
       s"d(${name(lhs)})/dt = " + (if (rhs.isEmpty) "0" else
         rhs.terms.map(printer.strMn(_,name)).mkString(" + ")))
@@ -351,7 +356,7 @@ object Fragger extends js.JSApp {
         li(a(href:="#",onclick:=(() => loadModel(m)))(m))).render
 
   def saveModel(modelName: String) =
-    if (modelName.value.contains(",")) {
+    if (modelName.contains(",")) {
       errorDiv.innerHTML = ""
       errorDiv.appendChild(div(cls:="alert alert-danger")(
         "Model name shouldn't contains commas.").render)
@@ -359,15 +364,16 @@ object Fragger extends js.JSApp {
       this.modelName = modelName
       localStorage.setItem(modelName,serialiseModel)
       if (localStorage.getItem("models") == null) {
-        localStorage.setItem("models",modelName.value.toString)
-      } else if (! localStorage.getItem("models").split(",").contains(
-        modelName.value)) {
+        localStorage.setItem("models", modelName)
+      } else if (! localStorage.getItem(
+        "models").split(",").contains(modelName)) {
         localStorage.setItem("models",
-          localStorage.getItem("models") + "," + modelName.value)
+          localStorage.getItem("models") + "," + modelName)
       }
     }
 
-  @JSName("Blob")
+  @js.native
+  @JSGlobal("Blob")
   class Blob(parts: js.Array[String], tpe: js.Dynamic)
       extends js.Object {
     def size: Int = js.native
@@ -636,6 +642,8 @@ object Fragger extends js.JSApp {
 
   // -- Main --
 
-  def main(): Unit = document.body.appendChild(mainDiv)
+  def main(args: Array[String]): Unit = {
+    dom.document.body.appendChild(mainDiv)
+  }
   // localStorage.clear
 }

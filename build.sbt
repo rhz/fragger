@@ -1,27 +1,19 @@
-// Turn this project into a Scala.js project by importing these settings
 enablePlugins(ScalaJSPlugin)
 
 name := "fragger"
+organization := "hz.ricardo"
+version := "0.2"
+scalaVersion := "2.13.2"
 
-organization := "uk.ac.ed.inf"
-
-version := "0.1"
-
-scalaVersion := "2.11.6"
-
-persistLauncher in Compile := true
-
-persistLauncher in Test := false
-
-// relativeSourceMaps := true
-
-resolvers += "Sonatype snapshots" at
-  "https://oss.sonatype.org/content/repositories/snapshots/"
+// This is an application with a main method
+scalaJSUseMainModuleInitializer := true
 
 libraryDependencies ++= Seq(
-  "org.scala-js" %%% "scalajs-dom" % "0.8.0",
-  "com.lihaoyi" %%% "scalatags" % "0.5.2",
-  "org.spaced.scalajs" %%% "scalajs-d3" % "0.1-SNAPSHOT",
-  "org.scala-js" %%% "scala-parser-combinators" % "1.0.2",
-  "uk.ac.ed.inf" %%% "graph-rewriting" % "0.2"
+  "org.scala-js" %%% "scalajs-dom" % "1.0.0",
+  "com.lihaoyi" %%% "scalatags" % "0.9.1",
+  "org.scala-lang.modules" %%% "scala-parser-combinators" % "1.1.2",
+  "hz.ricardo" %%% "graph-rewriting" % "0.3"
 )
+
+// Add support for the DOM in `run` and `test`
+jsEnv := new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv()
