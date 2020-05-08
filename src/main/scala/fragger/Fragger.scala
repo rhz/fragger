@@ -183,16 +183,67 @@ object Fragger {
       div(cls:="col-md-10")(graph)).render
   }
 
-  val n: Int = 3 // initial number of rules and observables
-  val ruleDiv: html.Div = div(for (i <- 1 to n) yield newRule).render
-  val obsDiv: html.Div = div(for (i <- 1 to n) yield newObs).render
+  val ruleDiv: html.Div = div().render
+  val obsDiv: html.Div = div().render
+  val addRule = () => ruleDiv.appendChild(newRule)
+  val addObs = () => obsDiv.appendChild(newObs)
+
+  val defaultMaxNumEqs: String = "10"
   val maxNumEqs: html.Input =
-    input(tpe:="text", size:=1, value:="10").render
+    input(tpe:="text", size:=1, value:=defaultMaxNumEqs).render
   val errorDiv: html.Div = div().render
   val resultDiv: html.Div = div().render
   val rateEqs: html.Input =
     input(tpe:="checkbox", cls:="form-check-input",
       id:="rateEqs").render
+
+  def isEmptyRule(name: String, lhs: String, rhs: String): Boolean =
+    name == "" && lhs == "" && rhs == ""
+
+  def isValidRule(name: String, lhs: String, rhs: String): Boolean =
+    name != "" &&
+    !name.contains('"') && !lhs.contains('"') && !rhs.contains('"')
+
+  def validateRule(name: String, lhs: String, rhs: String) =
+    if (name == "") {
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        "Rules must have a non-empty rate.").render)
+    } else if (name.contains('"') ||
+                lhs.contains('"') ||
+                rhs.contains('"')) {
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        s"""Rule with rate '${name}' contains quotes (").""" +
+          " This is not allowed.").render)
+    }
+
+  def parseRule(name: String, lhs: String, rhs: String)
+      : Rule[N,L,E,L,MarkedDiGraph] = Rule(
+    GraphParser.parse(lhs, errorDiv,
+      s"the left-hand side of rule with rate '${name}'"),
+    GraphParser.parse(rhs, errorDiv,
+      s"the right-hand side of rule with rate '${name}'"),
+    Rate(name))
+
+  def isEmptyObs(name: String, obs: String): Boolean =
+    name == "" && obs == ""
+
+  def isValidObs(name: String, obs: String): Boolean =
+    name != "" && obs != ""
+
+  def validateObs(name: String, obs: String) =
+    if (name == "" || obs == "") {
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        "Observables must have a non-empty name" +
+        " and graph expression.").render)
+    } else if (name.contains('"') ||
+                obs.contains('"')) {
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        s"""Observable '${name}' contains quotes (").""" +
+          " This is not allowed.").render)
+    }
+
+  def parseObs(name: String, obs: String): (String, Graph) =
+    (name, GraphParser.parse(obs, errorDiv, s"observable '${name}'"))
 
   def toDot(g: Graph) =
     (for (n <- g.nodes) yield (
@@ -207,25 +258,39 @@ object Fragger {
   (for (e <- g.edges.toSeq) yield
     s"${e.source}->${e.target}").mkString(", ")
 
-  val addRule = () => ruleDiv.appendChild(newRule)
-  val addObs = () => obsDiv.appendChild(newObs)
+  // TODO: find a more general way to handle long lines
+  def resultHeight(names: Iterable[String],
+    lines: Iterable[String]): Int =
+    30 * (names.size + lines.size + 1 +
+      lines.filter(_.length > 130).size)
+
   val genEquations = () => {
     errorDiv.innerHTML = ""
     val rs = for {
-      r <- rules
-      if r.name.value != ""
-    } yield Rule(
-      GraphParser.parse(r.lhs.value, errorDiv,
-        s"the left-hand side of rule '${r.name.value}'"),
-      GraphParser.parse(r.rhs.value, errorDiv,
-        s"the right-hand side of rule '${r.name.value}'"),
-      Rate(r.name.value))
+      RuleInput(name, lhs, rhs) <- rules
+      if !isEmptyRule(name.value, lhs.value, rhs.value)
+    } yield {
+      validateRule(name.value, lhs.value, rhs.value)
+      parseRule(name.value, lhs.value, rhs.value)
+    }
     val os = for {
-      o <- obs
-      if o.name.value != ""
-    } yield (o.name.value,
-      GraphParser.parse(o.graph.value, errorDiv,
-        s"observable '${o.name.value}'"))
+      ObsInput(name, graph) <- obs
+      if !isEmptyObs(name.value, graph.value)
+    } yield {
+      validateObs(name.value, graph.value)
+      parseObs(name.value, graph.value)
+    }
+    if (rs.length == 0)
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        "No rules were given so no differential equations" +
+          " can be computed.").render)
+    if (os.length == 0)
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        "No observables were given so no differential equations" +
+          " can be computed.").render)
+    if (errorDiv.innerHTML != "")
+      throw new IllegalArgumentException()
+
     val odes =
       if (rateEqs.checked)
         generateMeanODEs[N,L,E,L,MarkedDiGraph](
@@ -239,20 +304,15 @@ object Fragger {
 
     // FIXME: better output
     val printer = ODEPrinter(odes)
-    val name = new ObsNaming(os.toSeq)
+    val naming = new ObsNaming(os.toSeq)
     val lines = for (ODE(lhs, rhs) <- printer.simplify) yield (
-      s"d(${name(lhs)})/dt = " + (if (rhs.isEmpty) "0" else
-        rhs.terms.map(printer.strMn(_, name)).mkString(" + ")))
-    val names = for ((g, n) <- name.seq)
+      s"d(${naming(lhs)})/dt = " + (if (rhs.isEmpty) "0" else
+        rhs.terms.map(printer.strMn(_, naming)).mkString(" + ")))
+    val names = for ((g, n) <- naming.seq)
                 yield s"$n := ${toDot(g)}"
     resultDiv.innerHTML = ""
     resultDiv.appendChild(
       div(cls:="row", margin:=10)(h2("Results")).render)
-      // TODO: find a more general way to handle long lines
-    def resultHeight(names: Iterable[String],
-      lines: Iterable[String]): Int =
-      30 * (names.size + lines.size + 1 +
-        lines.filter(_.length > 130).size)
     resultDiv.appendChild(
       textarea(style:="margin-bottom: 50px; width: 100%; height: " +
         resultHeight(names, lines) + "px; font-family: monospace;")(
@@ -264,30 +324,17 @@ object Fragger {
   def serialiseModel: String = {
     val rs = (for {
       RuleInput(name, lhs, rhs) <- rules
-      if name.value != ""
+      if !isEmptyRule(name.value, lhs.value, rhs.value)
     } yield {
-      if (name.value.contains('"') ||
-           lhs.value.contains('"') ||
-           rhs.value.contains('"')) {
-        errorDiv.innerHTML = ""
-        errorDiv.appendChild(div(cls:="alert alert-danger")(
-          "Rules can't contain quotes (\").").render)
-        throw new IllegalArgumentException(
-          "Rules can't contain quotes (\").")
-      } else s"""("${name.value}","${lhs.value}","${rhs.value}")"""
+      validateRule(name.value, lhs.value, rhs.value)
+      s"""("${name.value}","${lhs.value}","${rhs.value}")"""
     }).mkString(";")
     val os = (for {
       ObsInput(name, graph) <- obs
-      if name.value != ""
+      if !isEmptyObs(name.value, graph.value)
     } yield {
-      if (name.value.contains('"') ||
-         graph.value.contains('"')) {
-        errorDiv.innerHTML = ""
-        errorDiv.appendChild(div(cls:="alert alert-danger")(
-          "Observables can't contain quotes (\").").render)
-        throw new IllegalArgumentException(
-          "Observables can't contain quotes (\").")
-      } else s"""("${name.value}","${graph.value}")"""
+      validateObs(name.value, graph.value)
+      s"""("${name.value}","${graph.value}")"""
     }).mkString(";")
     s"{rules:[$rs],observables:[$os],maxEqs:${maxNumEqs.value}}"
   }
@@ -333,7 +380,7 @@ object Fragger {
     seemoreAnchor.onclick = (e: dom.MouseEvent) => {
       if (isExpanded) {
         extra.style.display = "none"
-        base.style.paddingBottom = "20px"
+        base.style.paddingBottom = "30px"
         seemoreAnchor.textContent = "see more"
       } else {
         extra.style.display = "block"
@@ -348,13 +395,13 @@ object Fragger {
 
   val info: html.Div = div(cls:="col-md-5 bg-success text-left",
     style:="border: 2px solid #000; border-radius: 20px;" +
-      " padding-top: 20px; padding-bottom: 20px;" +
+      " padding-top: 20px; padding-bottom: 30px;" +
       " padding-left: 30px; padding-right: 30px;")(
     p("This ", a(href:="https://www.scala-js.org/")(
-      "Scala.js"), " web app generates systems of",
-      " differential equations that describe the average",
-      " behaviour of graph observables. For more ",
-      " information check the following papers.")).render
+      "Scala.js"), " ", a(href:="https://github.com/rhz/fragger")(
+      "web app"), " generates systems of differential equations",
+      " that describe the average behaviour of graph observables.",
+      " For more information check the following papers.")).render
 
   val extraInfo = div(display.none)(
     ul(cls:="list-unstyled")(
@@ -370,7 +417,10 @@ object Fragger {
         " transformation systems\" (MeMo 2015)")),
     p("All of them can be read at ",
       a(href:="https://tardis.ed.ac.uk/~rhz/")(
-        "https://tardis.ed.ac.uk/~rhz/"))).render
+        "https://tardis.ed.ac.uk/~rhz/"),
+      ". The computations are performed by the ",
+      a(href:="https://github.com/rhz/graph-rewriting")(
+        "graph-rewriting"), " library.")).render
 
   info.appendChild(seemore(info, extraInfo))
   info.appendChild(extraInfo)
@@ -378,12 +428,26 @@ object Fragger {
   val syntax: html.Div = div(
     cls:="col-md-6 col-md-offset-1 bg-info text-left",
     style:="border: 2px solid #000; border-radius: 20px;" +
-      " padding-bottom: 20px;" +
+      " padding-bottom: 30px;" +
       " padding-left: 30px; padding-right: 30px;")(
     h3(cls:="text-center")("Syntax"),
     p(code("graph := ((node | edge)(\";\" | \",\"))*")),
     p(code("node := name([label])?")),
-    p(code("edge := ->([label])?"))).render
+    p(code("edge := ->([label])?")),
+    p("Examples: ",
+      a(href:=dom.window.location.pathname +
+        "?re=1&m=EQQ2BpgRnAmDoFoB8BmOLXAHTAMoJSYZrhHIAsJFwQA")(
+        "bunnies"), ", ",
+      a(href:="#")(
+        "bimotor"), ", ",
+      a(href:="#")(
+        "preferential attachment"), ", ",
+      a(href:="#")(
+        "irreversible marks"), ", ",
+      a(href:="#")(
+        "Koch snowflake"), ", ",
+      a(href:="#")(
+        "voter model"), ".")).render
 
   val extraSyntax: html.Div = div(display.none)(
     p("Here ", code("->"), ", ", code("["),
@@ -404,6 +468,91 @@ object Fragger {
 
   syntax.appendChild(seemore(syntax, extraSyntax))
   syntax.appendChild(extraSyntax)
+
+  // assumes it is a valid rule (non-empty, no quotes)
+  def squishRule(name: String, lhs: String, rhs: String)
+      : String = '"' + name.replaceAll("\\s", "") + "\",\"" +
+    lhs.replaceAll("\\s", "") +  "\",\"" +
+    rhs.replaceAll("\\s", "") +  "\""
+
+  // assumes it is a valid observable (non-empty, no quotes)
+  def squishObs(name: String, graph: String)
+      : String = '"' + name.replaceAll("\\s", "") + "\",\"" +
+    graph.replaceAll("\\s", "") +  "\""
+
+  @js.native
+  @JSGlobal("LZString")
+  object LZString extends js.Object {
+    def compressToEncodedURIComponent(x: String): String = js.native
+    def decompressFromEncodedURIComponent(x: String): String = js.native
+  }
+
+  def compressRules: String = {
+    val squished = for (RuleInput(name, lhs, rhs) <- rules
+      if !isEmptyRule(name.value, lhs.value, rhs.value)) yield {
+      validateRule(name.value, lhs.value, rhs.value)
+      squishRule(name.value, lhs.value, rhs.value)
+    }
+    if (errorDiv.innerHTML != "")
+      throw new IllegalArgumentException()
+    // dom.window.btoa(squished.mkString("."))
+    LZString.compressToEncodedURIComponent(squished.mkString("."))
+  }
+
+  def compressModel: String = {
+    val squishedRules = for (RuleInput(name, lhs, rhs) <- rules
+      if !isEmptyRule(name.value, lhs.value, rhs.value)) yield {
+      validateRule(name.value, lhs.value, rhs.value)
+      squishRule(name.value, lhs.value, rhs.value)
+    }
+    val squishedObs = for (ObsInput(name, graph) <- obs
+      if !isEmptyObs(name.value, graph.value)) yield {
+      validateObs(name.value, graph.value)
+      squishObs(name.value, graph.value)
+    }
+    if (errorDiv.innerHTML != "")
+      throw new IllegalArgumentException()
+    LZString.compressToEncodedURIComponent(
+      (squishedRules ++ squishedObs).mkString("."))
+  }
+
+  def shareParams: String = {
+    val params = new URLSearchParams()
+    if (maxNumEqs.value != defaultMaxNumEqs)
+      params.append("mne", maxNumEqs.value)
+    if (rateEqs.checked)
+      params.append("re", "1")
+    params.append("m", compressModel)
+    params.toString
+  }
+
+  val sharePopup: html.Div = div(cls:="bg-info text-left",
+    style:="border: 2px solid #000; border-radius: 5px;" +
+      " padding-bottom: 0px; padding-top: 10px;" +
+      " padding-left: 15px; padding-right: 15px;",
+    display.none, position.absolute, bottom:="60px", right:="40px",
+    width:="35vw")().render
+
+  var popupHidden = true
+  val shareModel = () => {
+    errorDiv.innerHTML = ""
+    if (popupHidden) {
+      val url = dom.window.location.pathname + "?" + shareParams
+      sharePopup.appendChild(
+        p("Use the following URL to link directly to this model ",
+          a(href:=url)(url)).render)
+      sharePopup.style.display = "block"
+    } else {
+      sharePopup.removeChild(sharePopup.firstChild)
+      sharePopup.style.display = "none"
+    }
+    popupHidden = !popupHidden
+  }
+
+  val shareBtn: html.Div = div(cls:="col-md-3")(
+    button(cls:="btn btn-lg btn-default",
+      onclick:=shareModel)("Share model"),
+    sharePopup).render
 
   val mainDiv: html.Div =
     div(cls:="container text-center",id:="main-div")(
@@ -437,7 +586,8 @@ object Fragger {
             onclick:=addObs)("Add observable")),
         div(cls:="col-md-4 col-md-offset-1")(
           button(cls:="btn btn-lg btn-primary", width:="100%",
-            onclick:=genEquations)("Generate equations!"))),
+            onclick:=genEquations)("Generate equations!")),
+        shareBtn),
       div(cls:="row", // margin:=10,
         style:="margin-bottom: 50px")(
         div(cls:="col-md-6 form-check",
@@ -450,7 +600,66 @@ object Fragger {
       // -- Results --
       resultDiv).render
 
+  def addSpace(x: String): String =
+    x.replaceAll(",", ", ").replaceAll(";", "; ")
+
+  // def dequishRule(rule: String): Option[(String, String, String)] = {
+  //   val Triple = """"([^"]*)","([^"]*)","([^"]*)"""".r
+  //   rule match {
+  //     case Triple(name, lhs, rhs) =>
+  //       Some(name, addSpace(lhs), addSpace(rhs))
+  //     case _ => {
+  //       errorDiv.appendChild(div(cls:="alert alert-danger")(
+  //         "Rule '" + rule + "' can't be decompressed").render)
+  //       None
+  //     }
+  //   }
+  // }
+
   def main(args: Array[String]): Unit = {
     dom.document.body.appendChild(mainDiv)
+    val urlParams = new URLSearchParams(
+      dom.window.location.search)
+    // for (js.Tuple2(k, v) <- urlParams.entries()) {
+    urlParams.forEach { (v, k) =>
+      if (k == "mne")
+        maxNumEqs.value = v
+      else if (k == "re")
+        rateEqs.click
+      else if (k == "rules" || k == "obs" || k == "m") {
+        val triple = """"([^"]*)","([^"]*)","([^"]*)"\.""".r
+        // val twople = """(?<!,)"([^"]*)","([^"]*)"\.""".r
+        val twople = """"([^"]*)","([^"]*)"\.""".r
+        //  p = js.URIUtils.decodeURIComponent(v)
+        println(v)
+        val p = LZString.decompressFromEncodedURIComponent(v) + "."
+        println(p)
+        for (m <- triple.findAllMatchIn(p)) {
+          ruleDiv.appendChild(newRule)
+          val RuleInput(name, lhs, rhs) = rules.last
+          name.value = m.group(1)
+          lhs.value = addSpace(m.group(2))
+          rhs.value = addSpace(m.group(3))
+        }
+        val q = triple.replaceAllIn(p, "")
+        for (m <- twople.findAllMatchIn(q)) {
+          obsDiv.appendChild(newObs)
+          val ObsInput(name, graph) = obs.last
+          name.value = m.group(1)
+          graph.value = addSpace(m.group(2))
+        }
+      }
+    }
+    // initial number of rules and observables
+    // if none given via url search params
+    val n = 2
+    if (rules.isEmpty)
+      for (i <- 1 to n)
+        ruleDiv.appendChild(newRule)
+    if (obs.isEmpty)
+      for (i <- 1 to n)
+        obsDiv.appendChild(newObs)
+    // TODO: update url search params as model changes
+    // https://developers.google.com/web/updates/2016/01/urlsearchparams?hl=en
   }
 }
