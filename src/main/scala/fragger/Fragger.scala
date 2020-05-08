@@ -319,58 +319,6 @@ object Fragger {
       names.mkString("\n") + "\n\n" + lines.mkString("\n")).render)
   }
 
-  // -- Serialisation --
-
-  def serialiseModel: String = {
-    val rs = (for {
-      RuleInput(name, lhs, rhs) <- rules
-      if !isEmptyRule(name.value, lhs.value, rhs.value)
-    } yield {
-      validateRule(name.value, lhs.value, rhs.value)
-      s"""("${name.value}","${lhs.value}","${rhs.value}")"""
-    }).mkString(";")
-    val os = (for {
-      ObsInput(name, graph) <- obs
-      if !isEmptyObs(name.value, graph.value)
-    } yield {
-      validateObs(name.value, graph.value)
-      s"""("${name.value}","${graph.value}")"""
-    }).mkString(";")
-    s"{rules:[$rs],observables:[$os],maxEqs:${maxNumEqs.value}}"
-  }
-
-  val Model = ("""{\s*rules\s*:\s*\[\s*(.*)\s*\]\s*,\s*observables""" +
-    """\s*:\s*\[\s*(.*)\s*\]\s*,\s*maxEqs\s*:\s*(.*)\s*}""").r
-  val Triple = """\(\s*"(.*)"\s*,\s*"(.*)"\s*,\s*"(.*)"\s*\)""".r
-  val Twople = """\(\s*"(.*)"\s*,\s*"(.*)"\s*\)""".r
-  def deserialiseModel(in: String) = in match {
-    case Model(rs, os, maxEqs) => {
-      maxNumEqs.value = maxEqs
-      rules.clear
-      obs.clear
-      ruleDiv.innerHTML = ""
-      obsDiv.innerHTML = ""
-      for (Triple(name, lhs, rhs) <- rs.split(";")) {
-        ruleDiv.appendChild(newRule)
-        val RuleInput(n, l, r) = rules.last
-        n.value = name
-        l.value = lhs
-        r.value = rhs
-      }
-      for (Twople(name, graph) <- os.split(";")) {
-        obsDiv.appendChild(newObs)
-        val ObsInput(n, g) = obs.last
-        n.value = name
-        g.value = graph
-      }
-    }
-    case _ => {
-      errorDiv.innerHTML = ""
-      errorDiv.appendChild(div(cls:="alert alert-danger")(
-        s"Model '$s' couldn't be deserialised.").render)
-    }
-  }
-
   // -- HTML --
 
   def seemore(base: html.Div, extra: html.Div): html.Div = {
@@ -603,19 +551,6 @@ object Fragger {
   def addSpace(x: String): String =
     x.replaceAll(",", ", ").replaceAll(";", "; ")
 
-  // def dequishRule(rule: String): Option[(String, String, String)] = {
-  //   val Triple = """"([^"]*)","([^"]*)","([^"]*)"""".r
-  //   rule match {
-  //     case Triple(name, lhs, rhs) =>
-  //       Some(name, addSpace(lhs), addSpace(rhs))
-  //     case _ => {
-  //       errorDiv.appendChild(div(cls:="alert alert-danger")(
-  //         "Rule '" + rule + "' can't be decompressed").render)
-  //       None
-  //     }
-  //   }
-  // }
-
   def main(args: Array[String]): Unit = {
     dom.document.body.appendChild(mainDiv)
     val urlParams = new URLSearchParams(
@@ -631,9 +566,7 @@ object Fragger {
         // val twople = """(?<!,)"([^"]*)","([^"]*)"\.""".r
         val twople = """"([^"]*)","([^"]*)"\.""".r
         //  p = js.URIUtils.decodeURIComponent(v)
-        println(v)
         val p = LZString.decompressFromEncodedURIComponent(v) + "."
-        println(p)
         for (m <- triple.findAllMatchIn(p)) {
           ruleDiv.appendChild(newRule)
           val RuleInput(name, lhs, rhs) = rules.last
