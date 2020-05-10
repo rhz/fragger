@@ -384,18 +384,17 @@ object Fragger {
     p(code("edge := ->([label])?")),
     p("Examples: ",
       a(href:=dom.window.location.pathname +
-        "?re=1&m=EQQ2BpgRnAmDoFoB8BmOLXAHTAMoJSYZrhHIAsJFwQA")(
-        "bunnies"), ", ",
-      a(href:="#")(
-        "bimotor"), ", ",
-      a(href:="#")(
-        "preferential attachment"), ", ",
-      a(href:="#")(
-        "irreversible marks"), ", ",
-      a(href:="#")(
-        "Koch snowflake"), ", ",
-      a(href:="#")(
-        "voter model"), ".")).render
+        "?re=1&m=bunnies")("bunnies"), ", ",
+      a(href:=dom.window.location.pathname +
+        "?re=1&m=bimotor")("bimotor"), ", ",
+      a(href:=dom.window.location.pathname +
+        "?re=1&m=pa")("preferential attachment"), ", ",
+      a(href:=dom.window.location.pathname +
+        "?re=1&m=irreversible")("irreversible marks"), ", ",
+      a(href:=dom.window.location.pathname +
+        "?re=1&m=koch")("Koch snowflake"), ", ",
+      a(href:=dom.window.location.pathname +
+        "?re=1&m=voter")("voter model"), ".")).render
 
   val extraSyntax: html.Div = div(display.none)(
     p("Here ", code("->"), ", ", code("["),
@@ -559,14 +558,24 @@ object Fragger {
     urlParams.forEach { (v, k) =>
       if (k == "mne")
         maxNumEqs.value = v
-      else if (k == "re")
+      else if (k == "re" && v != "0")
         rateEqs.click
-      else if (k == "rules" || k == "obs" || k == "m") {
+      else if (k == "m") {
         val triple = """"([^"]*)","([^"]*)","([^"]*)"\.""".r
         // val twople = """(?<!,)"([^"]*)","([^"]*)"\.""".r
         val twople = """"([^"]*)","([^"]*)"\.""".r
         //  p = js.URIUtils.decodeURIComponent(v)
-        val p = LZString.decompressFromEncodedURIComponent(v) + "."
+        val p =
+          if (v == "bunnies")
+            """"a","1,2","1->3,2->3"."S","1->3,2->3,1->4,2->4"."""
+          else if (v == "bimotor" || v == "pa" ||
+            v == "irreversible" || v == "koch" || v == "voter") {
+            errorDiv.appendChild(div(cls:="alert alert-danger")(
+              "Model '" + v + "' has not been implemented yet."
+            ).render)
+            throw new IllegalArgumentException()
+          } else
+            LZString.decompressFromEncodedURIComponent(v) + "."
         for (m <- triple.findAllMatchIn(p)) {
           ruleDiv.appendChild(newRule)
           val RuleInput(name, lhs, rhs) = rules.last
