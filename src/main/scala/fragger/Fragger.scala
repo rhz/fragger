@@ -380,8 +380,8 @@ object Fragger {
       " padding-left: 30px; padding-right: 30px;")(
     h3(cls:="text-center")("Syntax"),
     p(code("graph := ((node | edge)(\";\" | \",\"))*")),
+    p(code("edge := node ->([label])? node")),
     p(code("node := name([label])?")),
-    p(code("edge := ->([label])?")),
     p("Examples: ",
       a(href:=dom.window.location.pathname +
         "?re=1&m=bunnies")("bunnies"), ", ",
