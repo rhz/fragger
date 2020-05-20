@@ -21,6 +21,7 @@ object Fragger {
   type Graph = MarkedDiGraph[N,L,E,L]
   implicit val graphBuilder = MarkedDiGraph.empty[N,L,E,L] _
 
+
   // -- Parsing --
 
   object GraphParser extends Parsers with RegexParsers {
@@ -110,6 +111,7 @@ object Fragger {
       }
   }
 
+
   // -- Naming observables --
 
   class ObsNaming(obs: Seq[(String, Graph)], start: Int = 0)
@@ -153,13 +155,16 @@ object Fragger {
   val cnt = utils.Counter()
   def countFrags = (g: Graph) => { cnt.next; None }
 
-  // -- Rules and Observables --
+
+  // -- Rules, Observables and Invariants --
 
   case class RuleInput(name: html.Input, lhs: html.Input, rhs: html.Input)
   case class ObsInput(name: html.Input, graph: html.Input)
+  case class InvInput(search: html.Input, replace: html.Input)
 
   val rules = mutable.ArrayBuffer.empty[RuleInput]
   val obs = mutable.ArrayBuffer.empty[ObsInput]
+  val inv = mutable.ArrayBuffer.empty[InvInput]
 
   def newRule: html.Div = {
     val name = input(tpe:="text", width:="100%").render
@@ -168,7 +173,7 @@ object Fragger {
     rules += RuleInput(name, lhs, rhs)
     div(cls:="row", margin:=10)(
       div(cls:="col-md-5")(lhs),
-      div(cls:="glyphicon glyphicon-arrow-right col-md-1",
+      div(cls:="col-md-1 glyphicon glyphicon-arrow-right",
         aria.hidden:=true, style:="line-height: 35px"),
       div(cls:="col-md-5")(rhs),
       div(cls:="col-md-1")(name)).render
@@ -183,10 +188,41 @@ object Fragger {
       div(cls:="col-md-10")(graph)).render
   }
 
+  def newInv: html.Div = {
+    val search = input(tpe:="text", width:="100%").render
+    val replace = input(tpe:="text", width:="100%").render
+    inv += InvInput(search, replace)
+    div(cls:="row", margin:=10)(
+      div(cls:="col-md-6")(search),
+      div(cls:="col-md-1 glyphicon glyphicon-arrow-right",
+        aria.hidden:=true, style:="line-height: 35px"),
+      div(cls:="col-md-5")(replace)).render
+  }
+
   val ruleDiv: html.Div = div().render
   val obsDiv: html.Div = div().render
+  val invDiv: html.Div = div().render
   val addRule = () => ruleDiv.appendChild(newRule)
   val addObs = () => obsDiv.appendChild(newObs)
+  val addInv = () => invDiv.appendChild(newInv)
+  val removeRule = () => {
+    if (rules.length > 1) {
+      ruleDiv.removeChild(ruleDiv.lastChild)
+      rules.trimEnd(1)
+    }
+  }
+  val removeObs = () => {
+    if (obs.length > 1) {
+      obsDiv.removeChild(obsDiv.lastChild)
+      obs.trimEnd(1)
+    }
+  }
+  val removeInv = () => {
+    if (inv.length > 1) {
+      invDiv.removeChild(invDiv.lastChild)
+      inv.trimEnd(1)
+    }
+  }
 
   val defaultMaxNumEqs: String = "10"
   val maxNumEqs: html.Input =
@@ -224,6 +260,7 @@ object Fragger {
       s"the right-hand side of rule with rate '${name}'"),
     Rate(name))
 
+
   def isEmptyObs(name: String, obs: String): Boolean =
     name == "" && obs == ""
 
@@ -244,6 +281,37 @@ object Fragger {
 
   def parseObs(name: String, obs: String): (String, Graph) =
     (name, GraphParser.parse(obs, errorDiv, s"observable '${name}'"))
+
+
+  def isEmptyInv(search: String, replace: String): Boolean =
+    search == "" && replace == ""
+
+  def validateInv(search: String, replace: String) =
+    if (search.contains('"')) {
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        s"""Invariant '${search}' contains quotes (").""" +
+          " This is not allowed.").render)
+    } else if (replace.contains('"')) {
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        s"""Invariant '${replace}' contains quotes (").""" +
+          " This is not allowed.").render)
+    }
+
+  def parseInv(search: String, replace: String)
+      : Graph => Option[Pn[N,L,E,L,MarkedDiGraph]] =
+    if (replace == "")
+      cancelIfIso(Seq(
+        GraphParser.parse(search,
+          errorDiv, s"invariant '${search}'")))
+    else
+      transformIfIso(Seq(
+        GraphParser.parse(search,
+          errorDiv, s"invariant '${search}'")),
+        GraphParser.parse(replace,
+          errorDiv, s"observable '${replace}'"))
+
+
+  // -- Generate equations --
 
   def toDot(g: Graph) =
     (for (n <- g.nodes) yield (
@@ -280,6 +348,13 @@ object Fragger {
       validateObs(name.value, graph.value)
       parseObs(name.value, graph.value)
     }
+    val is = for {
+      InvInput(search, replace) <- inv
+      if !isEmptyInv(search.value, replace.value)
+    } yield {
+      validateInv(search.value, replace.value)
+      parseInv(search.value, replace.value)
+    }
     if (rs.length == 0)
       errorDiv.appendChild(div(cls:="alert alert-danger")(
         "No rules were given so no differential equations" +
@@ -294,13 +369,14 @@ object Fragger {
     val odes =
       if (rateEqs.checked)
         generateMeanODEs[N,L,E,L,MarkedDiGraph](
-          maxNumEqs.value.toInt, rs,
-          os.map(_._2).toSeq, countFrags,
-          splitConnectedComponents[N,L,E,L,MarkedDiGraph] _)
+          maxNumEqs.value.toInt, rs, os.map(_._2).toSeq,
+          (Seq(countFrags,
+            splitConnectedComponents[N,L,E,L,MarkedDiGraph] _) ++
+            is):_*)
       else
         generateMeanODEs[N,L,E,L,MarkedDiGraph](
-          maxNumEqs.value.toInt, rs,
-          os.map(_._2).toSeq, countFrags)
+          maxNumEqs.value.toInt, rs, os.map(_._2).toSeq,
+          (Seq(countFrags) ++ is):_*)
 
     // FIXME: better output
     val printer = ODEPrinter(odes)
@@ -319,7 +395,8 @@ object Fragger {
       names.mkString("\n") + "\n\n" + lines.mkString("\n")).render)
   }
 
-  // -- HTML --
+
+  // -- Info and syntax boxes --
 
   def seemore(base: html.Div, extra: html.Div): html.Div = {
     var isExpanded = false
@@ -386,7 +463,7 @@ object Fragger {
       a(href:=dom.window.location.pathname +
         "?re=1&m=bunnies")("bunnies"), ", ",
       a(href:=dom.window.location.pathname +
-        "?re=1&m=bimotor")("bimotor"), ", ",
+        "?mne=2&m=bimotor")("bimotor"), ", ",
       a(href:=dom.window.location.pathname +
         "?re=1&m=pa")("preferential attachment"), ", ",
       a(href:=dom.window.location.pathname +
@@ -416,6 +493,9 @@ object Fragger {
   syntax.appendChild(seemore(syntax, extraSyntax))
   syntax.appendChild(extraSyntax)
 
+
+  // -- Compress model --
+
   // assumes it is a valid rule (non-empty, no quotes)
   def squishRule(name: String, lhs: String, rhs: String)
       : String = '"' + name.replaceAll("\\s", "") + "\",\"" +
@@ -426,6 +506,11 @@ object Fragger {
   def squishObs(name: String, graph: String)
       : String = '"' + name.replaceAll("\\s", "") + "\",\"" +
     graph.replaceAll("\\s", "") +  "\""
+
+  // assumes it is a valid invariant (non-empty, no quotes)
+  def squishInv(search: String, replace: String)
+      : String = "i\"" + search.replaceAll("\\s", "") + "\",\"" +
+    replace.replaceAll("\\s", "") +  "\""
 
   @js.native
   @JSGlobal("LZString")
@@ -457,11 +542,19 @@ object Fragger {
       validateObs(name.value, graph.value)
       squishObs(name.value, graph.value)
     }
+    val squishedInv = for (InvInput(search, replace) <- inv
+      if !isEmptyInv(search.value, replace.value)) yield {
+      validateInv(search.value, replace.value)
+      squishInv(search.value, replace.value)
+    }
     if (errorDiv.innerHTML != "")
       throw new IllegalArgumentException()
     LZString.compressToEncodedURIComponent(
-      (squishedRules ++ squishedObs).mkString("."))
+      (squishedRules ++ squishedObs ++ squishedInv).mkString("."))
   }
+
+
+  // -- Share model --
 
   def shareParams: String = {
     val params = new URLSearchParams()
@@ -496,10 +589,8 @@ object Fragger {
     popupHidden = !popupHidden
   }
 
-  val shareBtn: html.Div = div(cls:="col-md-3")(
-    button(cls:="btn btn-lg btn-default",
-      onclick:=shareModel)("Share model"),
-    sharePopup).render
+
+  // -- HTML --
 
   val mainDiv: html.Div =
     div(cls:="container text-center",id:="main-div")(
@@ -507,7 +598,17 @@ object Fragger {
       div(cls:="row", margin:=20)(h1("Fragger")),
       div(cls:="row", margin:=10, marginTop:=50)(info, syntax),
       // -- Rules --
-      div(cls:="row", margin:=10)(h2("Rules")),
+      div(cls:="row", margin:=10)(
+        div(cls:="col-md-4 col-md-offset-4")(
+          h2("Rules")),
+        div(cls:="col-md-1")(
+          button(cls:="btn btn-default glyphicon glyphicon-plus",
+            marginTop:="15px", marginBottom:="10px",
+            onclick:=addRule)()),
+        div(cls:="col-md-1")(
+          button(cls:="btn btn-default glyphicon glyphicon-minus",
+            marginTop:="15px", marginBottom:="10px",
+            onclick:=removeRule)())),
       div(cls:="row", margin:=10)(
         div(cls:="col-md-5")("left-hand side"),
         div(cls:="col-md-1"),
@@ -515,40 +616,119 @@ object Fragger {
         div(cls:="col-md-1")("rate")),
       ruleDiv,
       // -- Observables --
-      div(cls:="row", margin:=10)(h2("Observables")),
+      div(cls:="row", margin:=10)(
+        div(cls:="col-md-4 col-md-offset-4")(
+          h2("Observables")),
+        div(cls:="col-md-1")(
+          button(cls:="btn btn-default glyphicon glyphicon-plus",
+            marginTop:="15px", marginBottom:="10px",
+            onclick:=addObs)()),
+        div(cls:="col-md-1")(
+          button(cls:="btn btn-default glyphicon glyphicon-minus",
+            marginTop:="15px", marginBottom:="10px",
+            onclick:=removeObs)())),
       div(cls:="row", margin:=10)(
         div(cls:="col-md-2")("name"),
         div(cls:="col-md-10")("graph expression")),
       obsDiv,
+      // -- Invariants --
+      div(cls:="row", margin:=10)(
+        div(cls:="col-md-4 col-md-offset-4")(
+          h2("Invariants")),
+        div(cls:="col-md-1")(
+          button(cls:="btn btn-default glyphicon glyphicon-plus",
+            marginTop:="15px", marginBottom:="10px",
+            onclick:=addInv)()),
+        div(cls:="col-md-1")(
+          button(cls:="btn btn-default glyphicon glyphicon-minus",
+            marginTop:="15px", marginBottom:="10px",
+            onclick:=removeInv)())),
+      div(cls:="row", margin:=10)(
+        div(cls:="col-md-6")("observable to be replaced"),
+        div(cls:="col-md-1"),
+        div(cls:="col-md-5")("replacement")),
+      invDiv,
       // -- Errors --
       errorDiv,
       // -- Buttons --
-      div(cls:="row", margin:=10,
-        style:="margin-top: 50px; margin-bottom: 20px;")(
-        div(cls:="col-md-2")(
-          button(cls:="btn btn-lg btn-default",
-            onclick:=addRule)("Add rule")),
-        div(cls:="col-md-2")(
-          button(cls:="btn btn-lg btn-default",
-            onclick:=addObs)("Add observable")),
-        div(cls:="col-md-4 col-md-offset-1")(
+      div(cls:="row", margin:="10px",
+        marginTop:="50px", marginBottom:="20px")(
+        div(cls:="col-md-6", marginTop:="7px")(
+          "Maximum number of equations: ", maxNumEqs),
+        div(cls:="col-md-4")(
           button(cls:="btn btn-lg btn-primary", width:="100%",
             onclick:=genEquations)("Generate equations!")),
-        shareBtn),
+        div(cls:="col-md-2")(
+          button(cls:="btn btn-lg btn-default pull-right",
+            onclick:=shareModel)("Share model"),
+          sharePopup)),
       div(cls:="row", // margin:=10,
         style:="margin-bottom: 50px")(
         div(cls:="col-md-6 form-check",
           title:="Assume independence between connected components")(
           rateEqs, label(cls:="form-check-label",
             style:="font-weight: normal; padding-left: 10px;",
-            `for`:="rateEqs")("Rate equations")),
-        div(cls:="col-md-6")(
-          "Maximum number of equations: ", maxNumEqs)),
+            `for`:="rateEqs")("Rate equations"))),
       // -- Results --
       resultDiv).render
 
+
+  // -- Decompress model --
+
+  def getModelString(v: String) =
+    if (v == "bunnies")
+      """"a","1,2","1->3,2->3"."S","1->3,2->3,1->4,2->4"."""
+    else if (v == "bimotor") {
+      val g0 = "\"b[b],c[c],b->c,b->c\""
+      val g1 = "\"b[b],c1[c],c2[c],b->c1,b->c1,c1->c2\""
+      val g2 = "\"b[b],c1[c],c2[c],b->c1,b->c2,c1->c2\""
+      val g3 = "\"b[b],c1[c],c2[c],b->c2,b->c2,c1->c2\""
+      s""""kFE",$g1,$g2."kBC",$g2,$g1."kFC",$g2,$g3.""" +
+      s""""kBE",$g3,$g2."G0",$g0."G2",$g2.i$g1,$g0.i$g3,$g0."""
+    } else if (v == "pa" || v == "irreversible" || v == "koch" ||
+      v == "voter") {
+      errorDiv.appendChild(
+        div(cls:="alert alert-danger")(
+          "Model '" + v + "' has not been implemented yet.").render)
+      throw new IllegalArgumentException()
+    } else
+      LZString.decompressFromEncodedURIComponent(v) + "."
+
   def addSpace(x: String): String =
     x.replaceAll(",", ", ").replaceAll(";", "; ")
+
+  def decompressModel(v: String): Unit = {
+    val triple = """"([^"]*)","([^"]*)","([^"]*)"\.""".r
+    // val twople = """(?<!,)"([^"]*)","([^"]*)"\.""".r
+    val twople = """"([^"]*)","([^"]*)"\.""".r
+    val invre = """i"([^"]*)","([^"]*)"\.""".r
+    //  p = js.URIUtils.decodeURIComponent(v)
+    val p = getModelString(v)
+    for (m <- triple.findAllMatchIn(p)) {
+      ruleDiv.appendChild(newRule)
+      val RuleInput(name, lhs, rhs) = rules.last
+      name.value = m.group(1)
+      lhs.value = addSpace(m.group(2))
+      rhs.value = addSpace(m.group(3))
+    }
+    val q = triple.replaceAllIn(p, "")
+    for (m <- invre.findAllMatchIn(q)) {
+      invDiv.appendChild(newInv)
+      val InvInput(search, replace) = inv.last
+      search.value = m.group(1)
+      replace.value = addSpace(m.group(2))
+    }
+    val r = invre.replaceAllIn(q, "")
+    for (m <- twople.findAllMatchIn(r)) {
+      obsDiv.appendChild(newObs)
+      val ObsInput(name, graph) = obs.last
+      name.value = m.group(1)
+      graph.value = addSpace(m.group(2))
+    }
+  }
+
+
+  // -- Main: parse query string and load interface --
 
   def main(args: Array[String]): Unit = {
     dom.document.body.appendChild(mainDiv)
@@ -561,35 +741,7 @@ object Fragger {
       else if (k == "re" && v != "0")
         rateEqs.click
       else if (k == "m") {
-        val triple = """"([^"]*)","([^"]*)","([^"]*)"\.""".r
-        // val twople = """(?<!,)"([^"]*)","([^"]*)"\.""".r
-        val twople = """"([^"]*)","([^"]*)"\.""".r
-        //  p = js.URIUtils.decodeURIComponent(v)
-        val p =
-          if (v == "bunnies")
-            """"a","1,2","1->3,2->3"."S","1->3,2->3,1->4,2->4"."""
-          else if (v == "bimotor" || v == "pa" ||
-            v == "irreversible" || v == "koch" || v == "voter") {
-            errorDiv.appendChild(div(cls:="alert alert-danger")(
-              "Model '" + v + "' has not been implemented yet."
-            ).render)
-            throw new IllegalArgumentException()
-          } else
-            LZString.decompressFromEncodedURIComponent(v) + "."
-        for (m <- triple.findAllMatchIn(p)) {
-          ruleDiv.appendChild(newRule)
-          val RuleInput(name, lhs, rhs) = rules.last
-          name.value = m.group(1)
-          lhs.value = addSpace(m.group(2))
-          rhs.value = addSpace(m.group(3))
-        }
-        val q = triple.replaceAllIn(p, "")
-        for (m <- twople.findAllMatchIn(q)) {
-          obsDiv.appendChild(newObs)
-          val ObsInput(name, graph) = obs.last
-          name.value = m.group(1)
-          graph.value = addSpace(m.group(2))
-        }
+        decompressModel(v)
       }
     }
     // initial number of rules and observables
@@ -601,6 +753,8 @@ object Fragger {
     if (obs.isEmpty)
       for (i <- 1 to n)
         obsDiv.appendChild(newObs)
+    if (inv.isEmpty)
+      invDiv.appendChild(newInv)
     // TODO: update url search params as model changes
     // https://developers.google.com/web/updates/2016/01/urlsearchparams?hl=en
   }
