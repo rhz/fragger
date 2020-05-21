@@ -287,7 +287,11 @@ object Fragger {
     search == "" && replace == ""
 
   def validateInv(search: String, replace: String) =
-    if (search.contains('"')) {
+    if (search == "") {
+      errorDiv.appendChild(div(cls:="alert alert-danger")(
+        "Invariants must have a non-empty observable to be replaced."
+      ).render)
+    } else if (search.contains('"')) {
       errorDiv.appendChild(div(cls:="alert alert-danger")(
         s"""Invariant '${search}' contains quotes (").""" +
           " This is not allowed.").render)
@@ -298,17 +302,32 @@ object Fragger {
     }
 
   def parseInv(search: String, replace: String)
-      : Graph => Option[Pn[N,L,E,L,MarkedDiGraph]] =
-    if (replace == "")
-      cancelIfIso(Seq(
-        GraphParser.parse(search,
-          errorDiv, s"invariant '${search}'")))
-    else
-      transformIfIso(Seq(
-        GraphParser.parse(search,
-          errorDiv, s"invariant '${search}'")),
-        GraphParser.parse(replace,
-          errorDiv, s"observable '${replace}'"))
+      : Graph => Option[Pn[N,L,E,L,MarkedDiGraph]] = {
+    val sg = GraphParser.parse(search,
+      errorDiv, s"invariant '${search}'")
+    if (replace == "") {
+      // Not sure if the following works.
+      // I'm writing it by hand just in case.
+      // cancelIfIso(Seq(
+      //   GraphParser.parse(search,
+      //     errorDiv, s"invariant '${search}'")))
+      def invariant(g: Graph): Option[Pn[N,L,E,L,MarkedDiGraph]] =
+        if (g.iso(sg)) Some(Pn.zero) else None
+      invariant _
+    } else {
+      // This didn't work. Not sure why.
+      // transformIfIso(Seq(
+      //   GraphParser.parse(search,
+      //     errorDiv, s"invariant '${search}'")),
+      //   GraphParser.parse(replace,
+      //     errorDiv, s"observable '${replace}'"))
+      val rg = GraphParser.parse(replace,
+        errorDiv, s"observable '${replace}'")
+      def invariant(g: Graph): Option[Pn[N,L,E,L,MarkedDiGraph]] =
+        if (g.iso(sg)) Some(Pn(Mn(rg))) else None
+      invariant _
+    }
+  }
 
 
   // -- Generate equations --
@@ -366,17 +385,12 @@ object Fragger {
     if (errorDiv.innerHTML != "")
       throw new IllegalArgumentException()
 
+    val mne = maxNumEqs.value.toInt
+    val is0 = countFrags +: (if (rateEqs.checked)
+      Seq(splitConnectedComponents[N,L,E,L,MarkedDiGraph] _) else Nil)
     val odes =
-      if (rateEqs.checked)
-        generateMeanODEs[N,L,E,L,MarkedDiGraph](
-          maxNumEqs.value.toInt, rs, os.map(_._2).toSeq,
-          (Seq(countFrags,
-            splitConnectedComponents[N,L,E,L,MarkedDiGraph] _) ++
-            is):_*)
-      else
-        generateMeanODEs[N,L,E,L,MarkedDiGraph](
-          maxNumEqs.value.toInt, rs, os.map(_._2).toSeq,
-          (Seq(countFrags) ++ is):_*)
+      generateMeanODEs[N,L,E,L,MarkedDiGraph](
+        mne, rs, os.map(_._2).toSeq, (is0 ++ is):_*)
 
     // FIXME: better output
     val printer = ODEPrinter(odes)
@@ -386,6 +400,16 @@ object Fragger {
         rhs.terms.map(printer.strMn(_, naming)).mkString(" + ")))
     val names = for ((g, n) <- naming.seq)
                 yield s"$n := ${toDot(g)}"
+    if (names.length > lines.size) {
+      errorDiv.appendChild(div(cls:="alert alert-warning")(
+        s"The number of observables obtained is ${names.length}. ",
+        s"The number of ODEs computed is ${lines.size}. ",
+        "Hence, the system of ODEs is not closed. ",
+        "There are more ODEs to compute but the maximum number of ",
+        s"ODEs is set to ${mne}. ",
+        "Increase the maximum number of ODEs if you wish to compute ",
+        "ODEs for more observables.").render)
+    }
     resultDiv.innerHTML = ""
     resultDiv.appendChild(
       div(cls:="row", margin:=10)(h2("Results")).render)
@@ -571,7 +595,17 @@ object Fragger {
       " padding-bottom: 0px; padding-top: 10px;" +
       " padding-left: 15px; padding-right: 15px;",
     display.none, position.absolute, bottom:="60px", right:="40px",
-    width:="35vw")().render
+    width:="34.5vw")().render
+
+  def copyToClipboard(x: String) =
+    () => {
+      val nav = dom.window.navigator.asInstanceOf[js.Dynamic]
+      nav.clipboard.writeText(x)
+      // val urlInput = dom.document.getElementById(...)
+      // urlInput.focus
+      // urlInput.select
+      // dom.document.execCommand("copy")
+    }
 
   var popupHidden = true
   val shareModel = () => {
@@ -579,8 +613,15 @@ object Fragger {
     if (popupHidden) {
       val url = dom.window.location.pathname + "?" + shareParams
       sharePopup.appendChild(
-        p("Use the following URL to link directly to this model ",
-          a(href:=url)(url)).render)
+        div("Use the following URL to link directly to this model",
+          div(cls:="input-group", borderRadius:="5px",
+            marginBottom:="15px", marginTop:="5px")(
+            input(tpe:="text", cls:="form-control",
+              width:="100%", value:=url),
+            span(cls:="input-group-btn")(
+              button(cls:="btn btn-default " +
+                "glyphicon glyphicon-copy",
+                onclick:=copyToClipboard(url))))).render)
       sharePopup.style.display = "block"
     } else {
       sharePopup.removeChild(sharePopup.firstChild)
@@ -654,7 +695,7 @@ object Fragger {
       div(cls:="row", margin:="10px",
         marginTop:="50px", marginBottom:="20px")(
         div(cls:="col-md-6", marginTop:="7px")(
-          "Maximum number of equations: ", maxNumEqs),
+          "Maximum number of ODEs: ", maxNumEqs),
         div(cls:="col-md-4")(
           button(cls:="btn btn-lg btn-primary", width:="100%",
             onclick:=genEquations)("Generate equations!")),
@@ -679,12 +720,15 @@ object Fragger {
     if (v == "bunnies")
       """"a","1,2","1->3,2->3"."S","1->3,2->3,1->4,2->4"."""
     else if (v == "bimotor") {
-      val g0 = "\"b[b],c[c],b->c,b->c\""
-      val g1 = "\"b[b],c1[c],c2[c],b->c1,b->c1,c1->c2\""
-      val g2 = "\"b[b],c1[c],c2[c],b->c1,b->c2,c1->c2\""
-      val g3 = "\"b[b],c1[c],c2[c],b->c2,b->c2,c1->c2\""
-      s""""kFE",$g1,$g2."kBC",$g2,$g1."kFC",$g2,$g3.""" +
-      s""""kBE",$g3,$g2."G0",$g0."G2",$g2.i$g1,$g0.i$g3,$g0."""
+      val g0 = "b[b],c[c],b->c,b->c"
+      val g1 = "b[b],c1[c],c2[c],c1->c2,b->c1,b->c1"
+      val g2 = "b[b],c1[c],c2[c],c1->c2,b->c1,b->c2"
+      val g3 = "b[b],c1[c],c2[c],c1->c2,b->c2,b->c2"
+      s""""kFE","$g1","$g2"."kBC","$g2","$g1"."kFC","$g2","$g3".""" +
+      s""""kBE","$g3","$g2"."G0","$g0"."G2","$g2".i"$g1","$g0".""" +
+      s"""i"$g3","$g0".i"$g1,b->c1","".i"$g2,b->c1","".""" +
+      s"""i"$g2,b->c2","".i"$g3,b->c2","".i"$g2,c1->c2,b->c1","".""" +
+      s"""i"$g2,b->c2,c2->c1",""."""
     } else if (v == "pa" || v == "irreversible" || v == "koch" ||
       v == "voter") {
       errorDiv.appendChild(
