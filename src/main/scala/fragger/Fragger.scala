@@ -345,12 +345,6 @@ object Fragger {
   (for (e <- g.edges.toSeq) yield
     s"${e.source}->${e.target}").mkString(", ")
 
-  // TODO: find a more general way to handle long lines
-  def resultHeight(names: Iterable[String],
-    lines: Iterable[String]): Int =
-    30 * (names.size + lines.size + 1 +
-      lines.filter(_.length > 130).size)
-
   val genEquations = () => {
     errorDiv.innerHTML = ""
     val rs = for {
@@ -413,10 +407,11 @@ object Fragger {
     resultDiv.innerHTML = ""
     resultDiv.appendChild(
       div(cls:="row", margin:=10)(h2("Results")).render)
-    resultDiv.appendChild(
-      textarea(style:="margin-bottom: 50px; width: 100%; height: " +
-        resultHeight(names, lines) + "px; font-family: monospace;")(
-      names.mkString("\n") + "\n\n" + lines.mkString("\n")).render)
+    val ta = textarea(style:="margin-bottom: 50px; width: 100%; " +
+      "height: auto; font-family: monospace;")(
+      names.mkString("\n") + "\n\n" + lines.mkString("\n")).render
+    resultDiv.appendChild(ta)
+    ta.style.height = (ta.scrollHeight + 5) + "px"
   }
 
 
@@ -724,11 +719,32 @@ object Fragger {
       val g1 = "b[b],c1[c],c2[c],c1->c2,b->c1,b->c1"
       val g2 = "b[b],c1[c],c2[c],c1->c2,b->c1,b->c2"
       val g3 = "b[b],c1[c],c2[c],c1->c2,b->c2,b->c2"
-      s""""kFE","$g1","$g2"."kBC","$g2","$g1"."kFC","$g2","$g3".""" +
-      s""""kBE","$g3","$g2"."G0","$g0"."G2","$g2".i"$g1","$g0".""" +
-      s"""i"$g3","$g0".i"$g1,b->c1","".i"$g2,b->c1","".""" +
-      s"""i"$g2,b->c2","".i"$g3,b->c2","".i"$g2,c1->c2,b->c1","".""" +
-      s"""i"$g2,b->c2,c2->c1",""."""
+      s""""kFE","$g1","$g2"."kBC","$g2","$g1".""" +
+      s""""kFC","$g2","$g3"."kBE","$g3","$g2".""" +
+      s""""G0","$g0"."G2","$g2".""" +
+      s"""i"$g1","$g0".i"$g3","$g0".""" +
+      s"""i"$g1,b->c1","".""" +
+      s"""i"$g1,b->c2","".""" +
+      s"""i"$g2,b->c2","".""" +
+      s"""i"$g3,b->c2","".""" +
+      s"""i"$g2,c1->c2,b->c1","".""" +
+      s"""i"$g2,c2->c1,b->c2","".""" +
+      s"""i"$g1,c3[c],c2->c3,b->c3","".""" +
+      s"""i"$g1,c3[c],c3->c2,b->c3","".""" +
+      s"""i"$g1,c1->c2,b->c1","".""" +
+      s"""i"$g1,c1->c2","".""" +
+      s"""i"$g1,c2->c1,b->c1","".""" +
+      s"""i"$g1,c2->c1","".""" +
+      s"""i"$g2,c3[c],c1->c3,b->c3","".""" +
+      s"""i"$g2,c3[c],c2->c3,b->c3","".""" +
+      s"""i"$g2,c3[c],c3->c2,b->c3","".""" +
+      s"""i"$g2,c1->c2,b->c2","".""" +
+      s"""i"$g2,c1->c2","".""" +
+      s"""i"$g2,c2->c1","".""" +
+      s"""i"$g3,c3[c],c1->c3,b->c3","".""" +
+      s"""i"$g3,c3[c],c3->c1,b->c3","".""" +
+      s"""i"$g3,c1->c2,b->c2","".""" +
+      s"""i"$g3,c1->c2",""."""
     } else if (v == "pa" || v == "irreversible" || v == "koch" ||
       v == "voter") {
       errorDiv.appendChild(
@@ -759,7 +775,7 @@ object Fragger {
     for (m <- invre.findAllMatchIn(q)) {
       invDiv.appendChild(newInv)
       val InvInput(search, replace) = inv.last
-      search.value = m.group(1)
+      search.value = addSpace(m.group(1))
       replace.value = addSpace(m.group(2))
     }
     val r = invre.replaceAllIn(q, "")
