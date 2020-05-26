@@ -631,7 +631,12 @@ object Fragger {
   val mainDiv: html.Div =
     div(cls:="container text-center",id:="main-div")(
       // -- Title --
-      div(cls:="row", margin:=20)(h1("Fragger")),
+      div(cls:="row", margin:=20)(
+        div(cls:="col-md-4 col-md-offset-4")(
+          h1("Fragger")),
+        div(cls:="col-md-4")(
+          img(src:="ms.svg", cls:="pull-rigth",
+            width:="20vw", height:="5rem"))),
       div(cls:="row", margin:=10, marginTop:=50)(info, syntax),
       // -- Rules --
       div(cls:="row", margin:=10)(
