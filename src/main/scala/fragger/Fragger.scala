@@ -484,11 +484,11 @@ object Fragger {
       a(href:=dom.window.location.pathname +
         "?mne=2&m=bimotor")("bimotor"), ", ",
       a(href:=dom.window.location.pathname +
-        "?re=1&m=pa")("preferential attachment"), ", ",
+        "?m=pa")("preferential attachment"), ", ",
       a(href:=dom.window.location.pathname +
-        "?re=1&m=irreversible")("irreversible marks"), ", ",
+        "?m=irreversible")("irreversible marks"), ", ",
       a(href:=dom.window.location.pathname +
-        "?re=1&m=koch")("Koch snowflake"), ", ",
+        "?m=koch")("Koch snowflake"), ", ",
       a(href:=dom.window.location.pathname +
         "?re=1&m=voter")("voter model"), ".")).render
 
@@ -749,12 +749,31 @@ object Fragger {
       s"""i"$g3,c3[c],c3->c1,b->c3","".""" +
       s"""i"$g3,c1->c2,b->c2","".""" +
       s"""i"$g3,c1->c2",""."""
-    } else if (v == "pa" || v == "irreversible" || v == "koch" ||
-      v == "voter") {
-      errorDiv.appendChild(
-        div(cls:="alert alert-danger")(
-          "Model '" + v + "' has not been implemented yet.").render)
-      throw new IllegalArgumentException()
+    } else if (v == "pa") {
+      """"kBirth","A","|B|->A".""" +
+      """"kPA","B->A","B->A,|C|->A".""" +
+      """"kDeath","A","".""" +
+      """"G1","A"."G2","B->A"."G3","B->A,C->A"."""
+    } else if (v == "irreversible") {
+      """"kD","A",""."G1","|A|"."G2","B->|A|"."""
+    } else if (v == "koch") {
+      """"k0","A->B[0], B->C","A->U[n1], U->B[0], """ + // n1 = -1
+      """B->V[1], V->W[5], W->X[0], X->Y[n2], Y->C".""" +
+      """"O1","A[n1]->B[n1], B->C[n1]".""" +
+      """i"A[n1]->B[n1], A->C[0], C->D","".""" +
+      """i"A->B[0], B->C[n1], D[n1]->C","".""" +
+      """i"A[n1]->B[0], A->C[n1], B->C","".""" +
+      """i"A[n1]->B[n1], B->C[0], C->A",""."""
+    } else if (v == "voter") {
+      """"flip0a","u[red]->v[blue]","u[blue]->v[blue]".""" +
+      """"flip0b","u[blue]->v[red]","u[blue]->v[blue]".""" +
+      """"flip1a","u[red]->v[blue]","u[red]->v[red]".""" +
+      """"flip1b","u[blue]->v[red]","u[red]->v[red]".""" +
+      """"swap0a","u[red]->v[blue],w","u[red],w->v[blue]".""" +
+      """"swap0b","u[blue]->v[red],w","w->u[blue],v[red]".""" +
+      """"swap1a","u[red]->v[blue],w","w->u[red],v[blue]".""" +
+      """"swap1b","u[blue]->v[red],w","u[blue],w->v[red]".""" +
+      """"G","u[red]->v[blue]"."""
     } else
       LZString.decompressFromEncodedURIComponent(v) + "."
 
