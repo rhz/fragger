@@ -482,7 +482,7 @@ object Fragger {
       a(href:=dom.window.location.pathname +
         "?re=1&m=bunnies")("bunnies"), ", ",
       a(href:=dom.window.location.pathname +
-        "?mne=2&m=bimotor")("bimotor"), ", ",
+        "?m=bimotor")("bimotor"), ", ",
       a(href:=dom.window.location.pathname +
         "?m=pa")("preferential attachment"), ", ",
       a(href:=dom.window.location.pathname +
@@ -752,7 +752,7 @@ object Fragger {
     } else if (v == "pa") {
       """"kBirth","A","|B|->A".""" +
       """"kPA","B->A","B->A,|C|->A".""" +
-      """"kDeath","A","".""" +
+      // """"kDeath","A","".""" +
       """"G1","A"."G2","B->A"."G3","B->A,C->A"."""
     } else if (v == "irreversible") {
       """"kD","A",""."G1","|A|"."G2","B->|A|"."""
