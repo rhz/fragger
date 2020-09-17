@@ -17,9 +17,13 @@ object Fragger {
   type N = String
   type E = IdDiEdge[Int,N]
   type L = String
-  val Graph = MarkedDiGraph.withType[N,L,E,L]
-  type Graph = MarkedDiGraph[N,L,E,L]
-  implicit val graphBuilder = MarkedDiGraph.empty[N,L,E,L] _
+  // val Graph = MarkedDiGraph.withType[N,L,E,L]
+  // type Graph = MarkedDiGraph[N,L,E,L]
+  // implicit val graphBuilder = MarkedDiGraph.empty[N,L,E,L] _
+  val Graph = DiGraph.withType[N,L,E,L]
+  type Graph = DiGraph[N,L,E,L]
+  implicit val graphBuilder = DiGraph.empty[N,L,E,L] _
+  type G[N,NL,E<:DiEdgeLike[N],EL] = DiGraph[N,NL,E,EL]
 
 
   // -- Parsing --
@@ -33,12 +37,12 @@ object Fragger {
       g += name
       if (label.isDefined)
         g(name).label = label.get
-      mark match {
-        case 0 => ()
-        case 1 => g(name).inMark
-        case 2 => g(name).outMark
-        case 3 => g(name).mark
-      }
+      // mark match {
+      //   case 0 => ()
+      //   case 1 => g(name).inMark
+      //   case 2 => g(name).outMark
+      //   case 3 => g(name).mark
+      // }
     }
 
     lazy val graph: Parser[Graph] =
@@ -115,7 +119,7 @@ object Fragger {
   // -- Naming observables --
 
   class ObsNaming(obs: Seq[(String, Graph)], start: Int = 0)
-      extends GraphNaming[N,L,E,L,MarkedDiGraph] {
+      extends GraphNaming[N,L,E,L,G] { //MarkedDiGraph] {
 
     val cnt = utils.Counter(start)
     val index = mutable.Map[Graph, Int]()
@@ -142,8 +146,8 @@ object Fragger {
       val edges = (for (e <- g.edges) yield
         (e, IdDiEdge(e.id, nodes(e.source), nodes(e.target)))).toMap
       val h = Graph(nodes.values, edges.values)
-      for (n <- g.inMarks) h(nodes(n)).inMark
-      for (n <- g.outMarks) h(nodes(n)).outMark
+      // for (n <- g.inMarks) h(nodes(n)).inMark
+      // for (n <- g.outMarks) h(nodes(n)).outMark
       for ((n, l) <- g.nodelabels) h(nodes(n)).label = l
       for ((e, l) <- g.edgelabels) h(edges(e)).label = l
       h
@@ -253,7 +257,7 @@ object Fragger {
     }
 
   def parseRule(name: String, lhs: String, rhs: String)
-      : Rule[N,L,E,L,MarkedDiGraph] = Rule(
+      : Rule[N,L,E,L,G] = Rule( //MarkedDiGraph] = Rule(
     GraphParser.parse(lhs, errorDiv,
       s"the left-hand side of rule with rate '${name}'"),
     GraphParser.parse(rhs, errorDiv,
@@ -302,7 +306,7 @@ object Fragger {
     }
 
   def parseInv(search: String, replace: String)
-      : Graph => Option[Pn[N,L,E,L,MarkedDiGraph]] = {
+      : Graph => Option[Pn[N,L,E,L,G]] = { //MarkedDiGraph]] = {
     val sg = GraphParser.parse(search,
       errorDiv, s"invariant '${search}'")
     if (replace == "") {
@@ -311,7 +315,7 @@ object Fragger {
       // cancelIfIso(Seq(
       //   GraphParser.parse(search,
       //     errorDiv, s"invariant '${search}'")))
-      def invariant(g: Graph): Option[Pn[N,L,E,L,MarkedDiGraph]] =
+      def invariant(g: Graph): Option[Pn[N,L,E,L,G]] = //MarkedDiGraph]] =
         if (g.iso(sg)) Some(Pn.zero) else None
       invariant _
     } else {
@@ -323,7 +327,7 @@ object Fragger {
       //     errorDiv, s"observable '${replace}'"))
       val rg = GraphParser.parse(replace,
         errorDiv, s"observable '${replace}'")
-      def invariant(g: Graph): Option[Pn[N,L,E,L,MarkedDiGraph]] =
+      def invariant(g: Graph): Option[Pn[N,L,E,L,G]] = //MarkedDiGraph]] =
         if (g.iso(sg)) Some(Pn(Mn(rg))) else None
       invariant _
     }
@@ -334,10 +338,11 @@ object Fragger {
 
   def toDot(g: Graph) =
     (for (n <- g.nodes) yield (
-      if (g(n).inMarked && g(n).outMarked) "|" + n + "|"
-      else if (g(n).inMarked) ">" + n + "<"
-      else if (g(n).outMarked) "<" + n + ">"
-      else n) + (g(n).label match {
+      // if (g(n).inMarked && g(n).outMarked) "|" + n + "|"
+      // else if (g(n).inMarked) ">" + n + "<"
+      // else if (g(n).outMarked) "<" + n + ">"
+      // else n) + (g(n).label match {
+      n) + (g(n).label match {
         case Some(l) => "[" + l + "]"
         case None => ""
       })).mkString(", ") + (
@@ -381,9 +386,11 @@ object Fragger {
 
     val mne = maxNumEqs.value.toInt
     val is0 = countFrags +: (if (rateEqs.checked)
-      Seq(splitConnectedComponents[N,L,E,L,MarkedDiGraph] _) else Nil)
+      // Seq(splitConnectedComponents[N,L,E,L,MarkedDiGraph] _) else Nil)
+      Seq(splitConnectedComponents[N,L,E,L,G] _) else Nil)
     val odes =
-      generateMeanODEs[N,L,E,L,MarkedDiGraph](
+      // generateMeanODEs[N,L,E,L,MarkedDiGraph](
+      generateMeanODEs[N,L,E,L,G](
         mne, rs, os.map(_._2).toSeq, (is0 ++ is):_*)
 
     // FIXME: better output
@@ -394,6 +401,7 @@ object Fragger {
         rhs.terms.map(printer.strMn(_, naming)).mkString(" + ")))
     val names = for ((g, n) <- naming.seq)
                 yield s"$n := ${toDot(g)}"
+             // yield s"$n := ${printer.strGraph(g)}"
     if (names.length > lines.size) {
       errorDiv.appendChild(div(cls:="alert alert-warning")(
         s"The number of observables obtained is ${names.length}. ",
@@ -717,7 +725,9 @@ object Fragger {
 
   def getModelString(v: String) =
     if (v == "bunnies")
-      """"a","1,2","1->3,2->3"."S","1->3,2->3,1->4,2->4"."""
+      """"a","1,2","1->3,2->3".""" +
+      """"b","1->3,2->3","1->3,2->3,1->4,2->4".""" +
+      """"S","1->3,2->3,1->4,2->4"."""
     else if (v == "bimotor") {
       val g0 = "b[b],c[c],b->c,b->c"
       val g1 = "b[b],c1[c],c2[c],c1->c2,b->c1,b->c1"
